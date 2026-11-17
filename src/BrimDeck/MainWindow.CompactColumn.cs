@@ -78,6 +78,7 @@ public partial class MainWindow
         devices?.Stack(gap);
         double edge = Math.Min(Snap(layout.TextEdge, dpi), CompactMusicLayout.Whole(CollapsedLimits.ColumnPad * scale));
 
+        double ringsColumnWidth = apps.Count > 0 ? layout.RingSize : 0;
         var lines = new List<(FrameworkElement Element, double Height)>();
         void Add(FrameworkElement element, double height)
         {
@@ -97,7 +98,22 @@ public partial class MainWindow
             switch (part)
             {
                 case CompactPart.Rings when apps.Count > 0:
-                    Add(ColumnRings(apps, layout, ringGap, column, out double ringsHeight), ringsHeight); break;
+                    if (Settings.ShowsQuotaDetails)
+                    {
+                        var quotaStrip = new QuotaStrip(QuotaDetailItems(apps), layout.RingSize, layout.RingThickness, layout.Scale, ringGap, dpi, Look);
+                        quotaStrip.Stack(gap);
+                        ringsColumnWidth = quotaStrip.PreferredWidth;
+                        if (quotaStrip.PreferredWidth > column + .5)
+                        {
+                            var carousel = new ReadingsCarousel(quotaStrip, column, quotaStrip.PreferredWidth - column, edge, _quotaElapsed, animate);
+                            _columnReadings.Add(carousel);
+                            Add(carousel, quotaStrip.Height);
+                        }
+                        else Add(quotaStrip, quotaStrip.Height);
+                    }
+                    else
+                        Add(ColumnRings(apps, layout, ringGap, column, out double ringsHeight), ringsHeight);
+                    break;
                 case CompactPart.Music when text.Length > 0:
                     Add(_compactMarquee = CompactTitle(text, column, layout), layout.TextHeight); break;
                 case CompactPart.Monitor:
@@ -139,7 +155,7 @@ public partial class MainWindow
         // The column's width and length for the shape (CollapsedGeometry.Resolve): the widest fixed part, the readings up to the cap,
         // and every line with the gaps; the surface never shortens below its tallest line. Like the row, the track notice is left out.
         var stack = CompactColumn.Stack([.. lines.Select(line => line.Height)], gap);
-        double wantedColumn = CompactColumn.Width(scale, [layout.CoverSize * (cover ? 1 : 0), equalizer ? layout.EqualizerSize : 0, clock?.ReservedWidth ?? 0, transfer?.Width ?? 0, devices?.PreferredWidth ?? 0, apps.Count > 0 ? layout.RingSize : 0],
+        double wantedColumn = CompactColumn.Width(scale, [layout.CoverSize * (cover ? 1 : 0), equalizer ? layout.EqualizerSize : 0, clock?.ReservedWidth ?? 0, transfer?.Width ?? 0, devices?.PreferredWidth ?? 0, ringsColumnWidth],
             strips.Select(strip => strip.PreferredWidth));
         double wanted = notice ? (double.IsNaN(_compactWanted) ? stack.Length : _compactWanted) : DevicePixels.Up(stack.Length, dpi);
         double required = lines.Count == 0 ? 0 : Math.Ceiling(lines.Max(line => line.Height));

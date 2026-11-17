@@ -56,11 +56,7 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
         UsageMetric? Find(string id) => choices.FirstOrDefault(metric => metric.Id == id);
 
         if (style == QuotaRingStyle.Single)
-        {
-            if (entry?.SingleRingQuota is { Length: > 0 } single && Find(single) is { } chosen) return Rings([chosen]);
-            if (choices.FirstOrDefault(IsAccountBalance) is { } account) return Rings([account]);
-            return Rings([choices.Where(metric => Used(metric, entry) is not null).MaxBy(metric => Used(metric, entry))]);
-        }
+            return Rings([PrimaryMetric(choices, entry)]);
 
         if (entry?.RingQuotas is { Count: > 0 } picked && picked.Any(id => Find(id) is not null))
         {
@@ -97,6 +93,117 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
     // A balance or an amount spent can be given a target of its own for the rings (AppEntry.QuotaTargets). The account balance is
     // not: its target is the row's target balance (AppEntry.BalanceTarget), which the panel and the notices use too.
     public static bool TakesTarget(UsageMetric metric) => metric.Kind is MetricKind.Balance or MetricKind.Spend && metric.Amount is not null && !IsAccountBalance(metric);
+
+    // Picks the primary metric for an application's single ring and compact detail line.
+    public static UsageMetric? PrimaryMetric(ProviderSnapshot snapshot, AppEntry? entry) => PrimaryMetric(Choices(snapshot), entry);
+
+    private static UsageMetric? PrimaryMetric(IReadOnlyList<UsageMetric> choices, AppEntry? entry)
+    {
+        if (entry?.SingleRingQuota is { Length: > 0 } single && choices.FirstOrDefault(metric => metric.Id == single) is { } chosen) return chosen;
+        if (entry?.CompactQuotas is { Count: 1 } compact && choices.FirstOrDefault(metric => metric.Id == compact[0]) is { } onlyCompact) return onlyCompact;
+        if (choices.FirstOrDefault(IsAccountBalance) is { } account) return account;
+        return choices.Where(metric => Used(metric, entry) is not null).MaxBy(metric => Used(metric, entry));
+    }
+
+    // Formats the primary metric's percentage for the collapsed row (used or remaining, matching QuotaRingRemaining).
+    public static string PrimaryFigure(ProviderSnapshot snapshot, AppEntry? entry, bool remaining)
+        => MetricFigure(PrimaryMetric(snapshot, entry), entry, remaining);
+
+    // Formats a specific metric's percentage for the collapsed row (used or remaining, matching QuotaRingRemaining).
+    public static string MetricFigure(UsageMetric? metric, AppEntry? entry, bool remaining)
+    {
+        if (metric is null || Used(metric, entry) is not { } used) return "";
+        double shown = remaining ? 100 - used : used;
+        return $"{shown:0}%";
+    }
+
+    // Selects which metrics to render in the collapsed detail strip: all available, per-app selected, or the primary metric.
+    public static IReadOnlyList<UsageMetric> DetailMetrics(ProviderSnapshot snapshot, AppEntry? entry, bool showAll)
+    {
+        var choices = Choices(snapshot);
+        if (choices.Count == 0) return [];
+        if (showAll) return choices;
+        if (entry?.CompactQuotas is { Count: > 0 } picked)
+        {
+            var matched = choices.Where(metric => picked.Contains(metric.Id, StringComparer.Ordinal)).ToList();
+            if (matched.Count > 0) return matched;
+        }
+        return PrimaryMetric(choices, entry) is { } primary ? [primary] : [];
+    }
+
+    // Formats a compact reset countdown for the collapsed row; returns empty when there is no reset time.
+    public static string CompactReset(DateTimeOffset? date, DateTimeOffset now)
+    {
+        if (date is null) return "";
+        var remaining = date.Value - now;
+        if (remaining <= TimeSpan.Zero) return Loc.T("待重置", "Reset due");
+        if (remaining.TotalDays >= 1) return Loc.T($"{(int)remaining.TotalDays}天{remaining.Hours}时", $"{(int)remaining.TotalDays}d {remaining.Hours}h");
+        if (remaining.TotalHours >= 1) return Loc.T($"{remaining.Hours}时{remaining.Minutes}分", $"{remaining.Hours}h {remaining.Minutes}m");
+        int minutes = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
+        return Loc.T($"{minutes}分", $"{minutes}m");
+    }
+
+    // Formats a compact label for a metric (e.g. 5h, 周/1w, Gemini 5h) for the collapsed row.
+    // Set omitGroup to drop the group prefix when consecutive metrics belong to the same group.
+    public static string CompactMetricLabel(UsageMetric? metric, bool omitGroup = false)
+    {
+        if (metric is null) return "";
+        string group = omitGroup ? "" : GroupName(metric.Label);
+        if (metric.Window is > 0 and var minutes)
+        {
+            const int week = 7 * 24 * 60;
+            string span = minutes == week ? Loc.T("周", "1w")
+                : minutes % week == 0 ? Loc.T($"{minutes / week}周", $"{minutes / week}w")
+                : minutes % (24 * 60) == 0 ? $"{minutes / (24 * 60)}d"
+                : minutes % 60 == 0 ? $"{minutes / 60}h"
+                : $"{minutes}m";
+            return group.Length > 0 ? $"{group} {span}" : span;
+        }
+        string label = (metric.Label.Contains('·') ? metric.Label.Split('·')[^1] : metric.Label).Replace("额度", "", StringComparison.Ordinal).Trim();
+        string localized = Loc.Label(label);
+        return group.Length > 0 && localized.Length > 0 ? $"{group} {localized}" : localized;
+    }
+
+    // Joins the enabled detail parts for one application's collapsed quota item.
+    public static string DetailText(string? name, string? label, string? figure, string? reset, bool showName, bool showLabel, bool showFigure, bool showReset)
+    {
+        var parts = new List<string>(4);
+        if (showName && !string.IsNullOrWhiteSpace(name)) parts.Add(name.Trim());
+        if (showLabel && !string.IsNullOrWhiteSpace(label)) parts.Add(label.Trim());
+        if (showFigure && !string.IsNullOrWhiteSpace(figure)) parts.Add(figure.Trim());
+        if (showReset && !string.IsNullOrWhiteSpace(reset)) parts.Add(reset.Trim());
+        return string.Join(" ", parts);
+    }
+
+    public static string DetailText(string? name, string? figure, string? reset, bool showName, bool showFigure, bool showReset)
+        => DetailText(name, null, figure, reset, showName, false, showFigure, showReset);
+
+    // Extracts the group prefix from a metric label ("Gemini · 5 小时" -> "Gemini"), or empty when ungrouped.
+    public static string GroupName(string? label) => label is not null && label.Contains('·') ? label.Split('·')[0].Trim() : "";
+
+    // Groups and orders quota items according to per-app priority, falling back to the provider's default order.
+    public static List<List<T>> OrderGroups<T>(IReadOnlyList<T> items, Func<T, string> labelOf, IReadOnlyList<string>? preferredOrder, ProviderId id)
+    {
+        var originalOrder = items.Select(item => GroupName(labelOf(item))).Distinct(StringComparer.Ordinal).ToList();
+        int DefaultRank(string group) => id == ProviderId.Antigravity
+            ? group switch { "Gemini" => 0, "Argon" => 1, { Length: > 0 } => 2, _ => 3 }
+            : originalOrder.IndexOf(group);
+        int PriorityRank(string group)
+        {
+            if (preferredOrder is { Count: > 0 } && group.Length > 0)
+            {
+                for (int i = 0; i < preferredOrder.Count; i++)
+                    if (string.Equals(preferredOrder[i], group, StringComparison.Ordinal)) return i;
+            }
+            return int.MaxValue;
+        }
+        return items.GroupBy(item => GroupName(labelOf(item)), StringComparer.Ordinal)
+            .OrderBy(g => PriorityRank(g.Key))
+            .ThenBy(g => DefaultRank(g.Key))
+            .ThenBy(g => originalOrder.IndexOf(g.Key))
+            .Select(g => g.ToList())
+            .ToList();
+    }
 
     // The account balance, with or without the row's target balance as its total (DashboardUsage.Quota).
     public static bool IsAccountBalance(UsageMetric metric) => metric is { Kind: MetricKind.Balance, Label: "账户余额" } && (metric.Total is null || metric.TotalIsTarget);

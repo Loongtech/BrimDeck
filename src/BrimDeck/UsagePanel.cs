@@ -300,12 +300,9 @@ public partial class MainWindow
         // Claude groups by organization when an account reads several ("Pro · 5 小时额度", "Team · 每周额度"): each organization
         // starts its own page, in the order the service gave them, so Pro's 5-hour and weekly quotas come first, then its Fable
         // quota, then Team's.
-        string Group(UsageMetric metric) => UI.QuotaGroup(new Quota(metric.Label, 0, null));
-        var order = snapshot.Metrics.Select(Group).Distinct().ToList();
         var sets = snapshot.Id switch
         {
-            ProviderId.Antigravity => quotas.GroupBy(Group).OrderBy(x => x.Key switch { "Gemini" => 0, "Argon" => 1, { Length: > 0 } => 2, _ => 3 }).Select(x => x.ToList()).ToList(),
-            ProviderId.Claude => quotas.GroupBy(Group).OrderBy(x => order.IndexOf(x.Key)).Select(x => x.ToList()).ToList(),
+            ProviderId.Antigravity or ProviderId.Claude => QuotaRing.OrderGroups(quotas, m => m.Label, entry.QuotaGroupOrder, snapshot.Id),
             _ => [quotas]
         };
         var pages = sets.SelectMany(set => set.Chunk(capacity)).Select(x => x.ToList()).ToList();

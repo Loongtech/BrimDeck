@@ -614,6 +614,101 @@ public sealed partial class SettingsWindow
         }
         Targets();
 
+        void CompactDetails()
+        {
+            if (choices.Count <= 1) return;
+            var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
+            var selected = entry.CompactQuotas.ToHashSet(StringComparer.Ordinal);
+            foreach (var metric in choices)
+            {
+                string metricId = metric.Id;
+                var box = new CheckBox
+                {
+                    Content = Name(metric),
+                    IsChecked = selected.Contains(metricId),
+                    Foreground = UI.Brush(TextPrimary),
+                    FontFamily = UI.PanelFont,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 4, 14, 4),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    IsEnabled = !S.QuotaRingAll
+                };
+                void UpdateSelection(bool check)
+                {
+                    Change(s =>
+                    {
+                        var target = s.Entry(id);
+                        if (target is null) return;
+                        var next = target.CompactQuotas.ToList();
+                        if (check) { if (!next.Contains(metricId, StringComparer.Ordinal)) next.Add(metricId); }
+                        else next.RemoveAll(q => string.Equals(q, metricId, StringComparison.Ordinal));
+                        target.CompactQuotas = next;
+                    });
+                }
+                box.Checked += (_, _) => UpdateSelection(true);
+                box.Unchecked += (_, _) => UpdateSelection(false);
+                wrap.Children.Add(box);
+            }
+            var container = new StackPanel();
+            container.Children.Add(wrap);
+            container.Children.Add(Note(S.QuotaRingAll
+                ? Loc.T("当前已在“收起外观”中开启显示全部配额。", "Show all quotas is currently enabled in Collapsed appearance.")
+                : Loc.T("不勾选时只显示主配额；勾选后会在收起外观中显示所选额度。", "Shows only the primary quota when none are checked; otherwise shows the selected quotas when collapsed.")));
+            Line(Loc.T("收起详情额度", "Collapsed detail quotas"), null, container);
+        }
+
+        void GroupPriority()
+        {
+            var groups = QuotaRing.OrderGroups(choices, m => m.Label, entry.QuotaGroupOrder, entry.QuotaSource)
+                .Select(g => QuotaRing.GroupName(g[0].Label))
+                .Where(name => name.Length > 0)
+                .ToList();
+            if (groups.Count <= 1) return;
+            var list = new StackPanel();
+            for (int i = 0; i < groups.Count; i++)
+            {
+                int index = i;
+                string groupName = groups[i];
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, i > 0 ? 4 : 0, 0, 0) };
+                var label = new TextBlock
+                {
+                    Text = $"{i + 1}. {groupName}",
+                    Foreground = UI.Brush(TextPrimary),
+                    FontFamily = UI.PanelFont,
+                    FontSize = 12,
+                    Width = 110,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                var up = ActionButton("↑", () =>
+                {
+                    if (index <= 0) return;
+                    var next = groups.ToList();
+                    (next[index - 1], next[index]) = (next[index], next[index - 1]);
+                    Change(s => s.Entry(id)!.QuotaGroupOrder = next);
+                    RefreshAppRow(id);
+                });
+                up.FontSize = 11; up.Padding = new Thickness(7, 2, 7, 2); up.Margin = new Thickness(6, 0, 0, 0); up.IsEnabled = index > 0;
+                AutomationProperties.SetName(up, groupName + Loc.T(" 上移", " move up"));
+                var down = ActionButton("↓", () =>
+                {
+                    if (index >= groups.Count - 1) return;
+                    var next = groups.ToList();
+                    (next[index], next[index + 1]) = (next[index + 1], next[index]);
+                    Change(s => s.Entry(id)!.QuotaGroupOrder = next);
+                    RefreshAppRow(id);
+                });
+                down.FontSize = 11; down.Padding = new Thickness(7, 2, 7, 2); down.Margin = new Thickness(4, 0, 0, 0); down.IsEnabled = index < groups.Count - 1;
+                AutomationProperties.SetName(down, groupName + Loc.T(" 下移", " move down"));
+                row.Children.Add(label); row.Children.Add(up); row.Children.Add(down);
+                list.Children.Add(row);
+            }
+            var container = new StackPanel();
+            container.Children.Add(list);
+            container.Children.Add(Note(Loc.T("调整展开面板中各模型分组从上到下的显示顺序。", "Sets the top-to-bottom display order of quota groups in the expanded panel.")));
+            Line(Loc.T("展开分组顺序", "Expanded group order"), null, container);
+        }
+
         if (S.QuotaRingStyle == QuotaRingStyle.Single)
         {
             // By default the single ring shows the account balance where the source has one, else the most used quota (QuotaRing.For).
@@ -624,6 +719,8 @@ public sealed partial class SettingsWindow
             string title = Loc.T("配额环额度", "Ring quota");
             Line(title, null, Combo(title, options, account is not null && entry.SingleRingQuota == account.Id ? "" : entry.SingleRingQuota,
                 quota => { Change(s => s.Entry(id)!.SingleRingQuota = quota); RefreshAppRow(id); }));
+            CompactDetails();
+            GroupPriority();
             return grid;
         }
 
@@ -673,6 +770,8 @@ public sealed partial class SettingsWindow
             }
             Line(names[slot], null, line);
         }
+        CompactDetails();
+        GroupPriority();
         return grid;
     }
 

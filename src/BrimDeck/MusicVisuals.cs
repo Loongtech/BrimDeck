@@ -777,6 +777,131 @@ internal sealed class QuotaCarousel : GlideCarousel
     { MappingMode = BrushMappingMode.Absolute };
 }
 
+internal readonly record struct QuotaDetailEntry(string Label, string Figure, string Reset)
+{
+    public bool Any => Label.Length > 0 || Figure.Length > 0 || Reset.Length > 0;
+}
+
+internal readonly record struct QuotaStripItem(IReadOnlyList<double?> Shares, string Color, string Tip, string Letter, bool Stale, string Name, IReadOnlyList<QuotaDetailEntry> Details)
+{
+    public bool HasDetail => Name.Length > 0 || Details.Any(d => d.Any);
+}
+
+// Quota rings paired with optional detail labels (application name and one or more metric label/figure/reset entries) in the collapsed row.
+internal sealed class QuotaStrip : Canvas
+{
+    private readonly double _scale, _font, _ringGap, _textGap, _partGap, _ringSize, _dpi;
+    private readonly PanelLook _look;
+    private readonly IReadOnlyList<QuotaStripItem> _items;
+    private double _lineGap = -1;
+
+    public IReadOnlyList<double> ItemWidths { get; }
+    public double PreferredWidth { get; private set; }
+    public double RowHeight { get; }
+
+    public QuotaStrip(IReadOnlyList<QuotaStripItem> items, double ringSize, double thickness, double scale, double ringGap, double dpi, PanelLook? look = null)
+    {
+        _items = items;
+        _scale = BrimDeck.Core.CompactMusicLayout.SafeScale(scale);
+        _font = Math.Max(1, BrimDeck.Core.CompactMusicLayout.Half(11.5 * _scale));
+        _ringGap = ringGap;
+        _textGap = Math.Round(5 * _scale);
+        _partGap = Math.Round(4 * _scale);
+        _ringSize = ringSize;
+        _dpi = double.IsFinite(dpi) && dpi > 0 ? dpi : 1;
+        _look = look ?? PanelTheme.Main;
+        RowHeight = Math.Max(ringSize, Math.Max(1, BrimDeck.Core.CompactMusicLayout.Whole(24 * _scale)));
+
+        double SnapUp(double v) => DevicePixels.Up(v, _dpi);
+        double lineHeight = Math.Max(1, BrimDeck.Core.CompactMusicLayout.Whole(16 * _scale));
+        var widths = new double[items.Count];
+        var labels = new FrameworkElement?[items.Count];
+        for (int i = 0; i < items.Count; i++)
+        {
+            double w = ringSize;
+            var item = items[i];
+            if (item.HasDetail)
+            {
+                var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                void AddPart(string text, string color, FontWeight weight, double extraGap = 0)
+                {
+                    if (text.Length == 0) return;
+                    var part = UI.Fixed(text, _font, lineHeight, color, weight);
+                    if (panel.Children.Count > 0) part.Margin = new Thickness(_partGap + extraGap, 0, 0, 0);
+                    panel.Children.Add(part);
+                }
+                AddPart(item.Name, _look.Primary, FontWeights.SemiBold);
+                bool firstEntry = true;
+                foreach (var detail in item.Details)
+                {
+                    if (!detail.Any) continue;
+                    if (!firstEntry) AddPart("·", _look.Tertiary, FontWeights.Normal, Math.Round(1 * _scale));
+                    AddPart(detail.Label, _look.Secondary, FontWeights.Normal, firstEntry ? 0 : Math.Round(1 * _scale));
+                    AddPart(detail.Figure, _look.Primary, FontWeights.SemiBold);
+                    AddPart(detail.Reset, _look.Tertiary, FontWeights.Normal);
+                    firstEntry = false;
+                }
+                panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                double textW = SnapUp(panel.DesiredSize.Width);
+                if (item.Stale) panel.Opacity = BrimDeck.Core.UsageLastSeen.Dimmed;
+                labels[i] = panel;
+                w += _textGap + textW;
+            }
+            widths[i] = SnapUp(w);
+        }
+        ItemWidths = widths;
+        PreferredWidth = items.Count == 0 ? 0 : widths.Sum() + Math.Max(0, items.Count - 1) * _ringGap;
+        Width = PreferredWidth;
+        Height = RowHeight;
+
+        double x = 0;
+        for (int i = 0; i < items.Count; i++)
+        {
+            var ring = QuotaCarousel.Ring((items[i].Shares, items[i].Color, items[i].Tip, items[i].Letter, items[i].Stale), ringSize, thickness, _scale, _look);
+            SetLeft(ring, x);
+            SetTop(ring, (RowHeight - ringSize) / 2);
+            Children.Add(ring);
+            if (labels[i] is { } label)
+            {
+                SetLeft(label, x + ringSize + _textGap);
+                SetTop(label, (RowHeight - label.DesiredSize.Height) / 2);
+                Children.Add(label);
+            }
+            x += widths[i] + _ringGap;
+        }
+        ToolTip = string.Join("\n", items.Select(item => item.Tip));
+        AutomationProperties.SetName(this, Loc.T("配额环 ", "Quota rings ") + ToolTip);
+    }
+
+    // Lays items out vertically (one item per line) for the side-edge column.
+    public void Stack(double gap)
+    {
+        _lineGap = Math.Max(0, gap);
+        double maxW = ItemWidths.Count == 0 ? 0 : ItemWidths.Max();
+        PreferredWidth = maxW;
+        Width = maxW;
+        Height = _items.Count == 0 ? RowHeight : _items.Count * RowHeight + (_items.Count - 1) * _lineGap;
+
+        int childIndex = 0;
+        for (int i = 0; i < _items.Count; i++)
+        {
+            double y = i * (RowHeight + _lineGap);
+            double startX = Math.Max(0, Math.Round((maxW - ItemWidths[i]) / 2));
+            var ring = Children[childIndex++];
+            SetLeft(ring, startX);
+            SetTop(ring, y + (RowHeight - _ringSize) / 2);
+            if (_items[i].HasDetail && childIndex < Children.Count)
+            {
+                var label = (FrameworkElement)Children[childIndex++];
+                SetLeft(label, startX + _ringSize + _textGap);
+                SetTop(label, y + (RowHeight - label.DesiredSize.Height) / 2);
+            }
+        }
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Text, () => AutomationProperties.GetName(this).Replace("\n", Loc.T("；", "; ")));
+}
+
 // System readings that do not all fit scroll through a window of whole readings (CompactSpacing.Window): it rests with the
 // first readings whole in it, glides until the last ones stand whole from its left edge, and rests there. The readings keep the
 // width of their widest figures (MonitorStrip), so the window and the travel do not move with the figures. The fades lie
@@ -792,6 +917,9 @@ internal sealed class ReadingsCarousel : GlideCarousel
     // The devices' batteries on a column line too wide for it scroll the same way.
     public ReadingsCarousel(DeviceStrip strip, double window, double travel, double edge, TimeSpan elapsed, bool animate)
         : this(strip, strip.PreferredWidth, window, travel, edge, elapsed, animate, 0) { }
+    // Quota rings with detail labels that exceed their region scroll the same way.
+    public ReadingsCarousel(QuotaStrip strip, double window, double travel, double edge, TimeSpan elapsed, bool animate, double cut = 0)
+        : this(strip, strip.PreferredWidth, window, travel, edge, elapsed, animate, cut) { }
     private ReadingsCarousel(FrameworkElement strip, double width, double window, double travel, double edge, TimeSpan elapsed, bool animate, double cut)
     {
         window = Math.Max(0, window); travel = Math.Max(0, travel); cut = Math.Max(0, cut);
