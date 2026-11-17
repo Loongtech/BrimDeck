@@ -292,7 +292,6 @@ public partial class MainWindow
     private QuotaView Quotas(AppEntry entry, ProviderSnapshot snapshot)
     {
         const int capacity = 2;
-        var quotas = snapshot.Metrics.OrderBy(x => x.Window is > 0 ? x.Window.Value : int.MaxValue).ToList();
         // Antigravity labels its quotas "Gemini · 5 小时", "Claude · 每周" and so on. Each group starts its own page, Gemini first,
         // so the first page shows rows 1 and 2 (Gemini) and a click on the column shows rows 3 and 4 (Claude), the same rows and
         // click-to-page as any other app with more than two quotas. Google AI Pro's weekly Argon quota follows Gemini; labels
@@ -302,8 +301,10 @@ public partial class MainWindow
         // quota, then Team's.
         var sets = snapshot.Id switch
         {
-            ProviderId.Antigravity or ProviderId.Claude => QuotaRing.OrderGroups(quotas, m => m.Label, entry.QuotaGroupOrder, snapshot.Id),
-            _ => [quotas]
+            ProviderId.Antigravity or ProviderId.Claude => QuotaRing.OrderGroups(snapshot.Metrics, m => m.Label, entry.QuotaGroupOrder, snapshot.Id)
+                .Select(group => group.OrderBy(x => x.Window is > 0 ? x.Window.Value : int.MaxValue).ToList())
+                .ToList(),
+            _ => [snapshot.Metrics.OrderBy(x => x.Window is > 0 ? x.Window.Value : int.MaxValue).ToList()]
         };
         var pages = sets.SelectMany(set => set.Chunk(capacity)).Select(x => x.ToList()).ToList();
         if (pages.Count == 0) pages.Add([]);

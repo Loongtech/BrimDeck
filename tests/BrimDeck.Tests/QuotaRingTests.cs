@@ -166,6 +166,7 @@ internal static class QuotaRingTests
             && QuotaRing.CompactMetricLabel(new UsageMetric(MetricKind.Percent, "双周额度") { Window = 20160 }) == Loc.T("2周", "2w")
             && QuotaRing.CompactMetricLabel(new UsageMetric(MetricKind.Percent, "Gemini · 5 小时") { Window = 300 }) == "Gemini 5h"
             && QuotaRing.CompactMetricLabel(new UsageMetric(MetricKind.Percent, "Gemini · 每周") { Window = 10080 }, omitGroup: true) == Loc.T("周", "1w")
+            && QuotaRing.CompactMetricLabel(new UsageMetric(MetricKind.Percent, "Pro · 每周额度") { Window = 10080 }) != QuotaRing.CompactMetricLabel(new UsageMetric(MetricKind.Percent, "Pro · Fable 每周") { Window = 10080 })
             && QuotaRing.CompactMetricLabel(new UsageMetric(MetricKind.Balance, "账户余额")) == Loc.Label("账户余额")
             && QuotaRing.CompactMetricLabel(null) == "");
         check("Quota ring detail: detail text joins only enabled non-empty parts",

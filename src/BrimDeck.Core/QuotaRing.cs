@@ -149,7 +149,13 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
     {
         if (metric is null) return "";
         string group = omitGroup ? "" : GroupName(metric.Label);
-        if (metric.Window is > 0 and var minutes)
+        string rawPeriod = (metric.Label.Contains('·') ? metric.Label.Split('·')[^1] : metric.Label).Replace("额度", "", StringComparison.Ordinal).Trim();
+        static bool IsGenericPeriod(string text) => text.ToLowerInvariant() switch
+        {
+            "" or "5 小时" or "5小时" or "5h" or "每日" or "每天" or "daily" or "1d" or "每周" or "weekly" or "1w" or "7d" or "双周" or "每月" or "monthly" or "1m" or "30d" => true,
+            _ => false
+        };
+        if (metric.Window is > 0 and var minutes && IsGenericPeriod(rawPeriod))
         {
             const int week = 7 * 24 * 60;
             string span = minutes == week ? Loc.T("周", "1w")
@@ -159,8 +165,7 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
                 : $"{minutes}m";
             return group.Length > 0 ? $"{group} {span}" : span;
         }
-        string label = (metric.Label.Contains('·') ? metric.Label.Split('·')[^1] : metric.Label).Replace("额度", "", StringComparison.Ordinal).Trim();
-        string localized = Loc.Label(label);
+        string localized = Loc.Label(rawPeriod);
         return group.Length > 0 && localized.Length > 0 ? $"{group} {localized}" : localized;
     }
 

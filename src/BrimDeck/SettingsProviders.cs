@@ -659,6 +659,7 @@ public sealed partial class SettingsWindow
 
         void GroupPriority()
         {
+            if (entry.QuotaSource is not (ProviderId.Claude or ProviderId.Antigravity)) return;
             var groups = QuotaRing.OrderGroups(choices, m => m.Label, entry.QuotaGroupOrder, entry.QuotaSource)
                 .Select(g => QuotaRing.GroupName(g[0].Label))
                 .Where(name => name.Length > 0)
