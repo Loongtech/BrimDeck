@@ -58,7 +58,8 @@ public partial class MainWindow
             _stripUnavailable = _stripAdmission.Hidden;
             void Line(CompactReading reading, MonitorStrip.DriveParts drives = MonitorStrip.DriveParts.All)
             {
-                var strip = new MonitorStrip([reading], colors, scale, true, _stripPresence, dpi, _stripUnavailable, _stripAdmission, drives, Settings.CoreDisplay);
+                var strip = new MonitorStrip([reading], colors, scale, true, _stripPresence, dpi, _stripUnavailable, _stripAdmission, drives, Settings.CoreDisplay, Settings.MonitorShowFree, Settings.CoreMatrixColumns,
+                    _app.Monitor?.Latest?.Cpu.OrDefault?.Cores.Count ?? 0);
                 if (strip.PreferredWidth > 0) strips.Add(strip);
             }
             foreach (var reading in CompactColumn.Readings(Settings.CompactReadings))
@@ -100,13 +101,13 @@ public partial class MainWindow
                 case CompactPart.Rings when apps.Count > 0:
                     if (Settings.ShowsQuotaDetails)
                     {
-                        var quotaStrip = new QuotaStrip(QuotaDetailItems(apps), layout.RingSize, layout.RingThickness, layout.Scale, ringGap, dpi, Look);
+                        var quotaStrip = new QuotaStrip(QuotaDetailItems(apps), layout, ringGap, dpi, Look);
                         quotaStrip.Stack(gap);
-                        ringsColumnWidth = quotaStrip.PreferredWidth;
+                        ringsColumnWidth = Math.Min(quotaStrip.PreferredWidth, CompactColumn.ReadingCap * scale);
                         if (quotaStrip.PreferredWidth > column + .5)
                         {
                             var carousel = new ReadingsCarousel(quotaStrip, column, quotaStrip.PreferredWidth - column, edge, _quotaElapsed, animate);
-                            _columnReadings.Add(carousel);
+                            _quotaCarousel = carousel;
                             Add(carousel, quotaStrip.Height);
                         }
                         else Add(quotaStrip, quotaStrip.Height);
@@ -189,7 +190,7 @@ public partial class MainWindow
         {
             int line = i / perLine, inLine = Math.Min(perLine, rings.Length - line * perLine);
             double start = (column - (inLine * layout.RingSize + (inLine - 1) * gap)) / 2;
-            var ring = QuotaCarousel.Ring(rings[i], layout.RingSize, layout.RingThickness, layout.Scale, Look);
+            var ring = QuotaCarousel.Ring(rings[i], layout.RingSize, layout.RingThickness, layout.RingScale, Look);
             Canvas.SetLeft(ring, Math.Round(start + (i % perLine) * (layout.RingSize + gap)));
             Canvas.SetTop(ring, line * (layout.RingSize + gap));
             canvas.Children.Add(ring);

@@ -727,7 +727,7 @@ internal sealed class QuotaCarousel : GlideCarousel
     // flowing: the window as wide as the room gives it, not whole rings (the surface is being dragged; CompactSpacing.ShareFlowing),
     // with the ring it cuts faded over cut DIPs; nothing glides then.
     public QuotaCarousel(IReadOnlyList<(IReadOnlyList<double?> Shares, string Color, string Tip, string Letter, bool Stale)> items, double size, double thickness, double rowScale, double gap, int count, double edge,
-        TimeSpan elapsed = default, bool animate = true, double? flowing = null, double cut = 0)
+        TimeSpan elapsed = default, bool animate = true, double? flowing = null, double cut = 0, double? rowHeight = null)
     {
         // Ring positions, the window and the travel all use whole device pixels. Layout rounding would otherwise widen each gap
         // at 150 % and carry the last ring into the edge fade.
@@ -740,11 +740,15 @@ internal sealed class QuotaCarousel : GlideCarousel
         bool cutting = flowing is not null && cut > 0;
         // The fades lie outside the window, over the gaps beside it, so every ring in the window is whole at rest.
         edge = Rotates || cutting ? Math.Min(Snap(edge), Snap(gap)) : 0;
-        Width = edge + window + edge; Height = size; ClipToBounds = true;
-        _strip = new Canvas { Width = items.Count * step, Height = size, RenderTransform = new TranslateTransform() };
+        Width = edge + window + edge; Height = Math.Max(size, rowHeight ?? size); ClipToBounds = true;
+        _strip = new Canvas { Width = items.Count * step, Height = Height, RenderTransform = new TranslateTransform() };
         for (int i = 0; i < items.Count; i++)
         {
             var ring = Ring(items[i], size, thickness, rowScale, Look);
+            // Keep the row's centre even when an odd diameter leaves a half-DIP above and below it.
+            // Centring a separate, rounded-height carousel moved the rings half a pixel off the readings.
+            ring.UseLayoutRounding = false;
+            Canvas.SetTop(ring, (Height - size) / 2);
             Canvas.SetLeft(ring, edge + i * step); _strip.Children.Add(ring);
         }
         // A Canvas measures the strip at its full width. Inside the Grid the strip would be
@@ -799,18 +803,18 @@ internal sealed class QuotaStrip : Canvas
     public double PreferredWidth { get; private set; }
     public double RowHeight { get; }
 
-    public QuotaStrip(IReadOnlyList<QuotaStripItem> items, double ringSize, double thickness, double scale, double ringGap, double dpi, PanelLook? look = null)
+    public QuotaStrip(IReadOnlyList<QuotaStripItem> items, CompactMusicLayout layout, double ringGap, double dpi, PanelLook? look = null)
     {
         _items = items;
-        _scale = BrimDeck.Core.CompactMusicLayout.SafeScale(scale);
+        _scale = layout.Scale;
         _font = Math.Max(1, BrimDeck.Core.CompactMusicLayout.Half(11.5 * _scale));
         _ringGap = ringGap;
         _textGap = Math.Round(5 * _scale);
         _partGap = Math.Round(4 * _scale);
-        _ringSize = ringSize;
+        _ringSize = layout.RingSize;
         _dpi = double.IsFinite(dpi) && dpi > 0 ? dpi : 1;
         _look = look ?? PanelTheme.Main;
-        RowHeight = Math.Max(ringSize, Math.Max(1, BrimDeck.Core.CompactMusicLayout.Whole(24 * _scale)));
+        RowHeight = layout.RowHeight;
 
         double SnapUp(double v) => DevicePixels.Up(v, _dpi);
         double lineHeight = Math.Max(1, BrimDeck.Core.CompactMusicLayout.Whole(16 * _scale));
@@ -818,7 +822,7 @@ internal sealed class QuotaStrip : Canvas
         var labels = new FrameworkElement?[items.Count];
         for (int i = 0; i < items.Count; i++)
         {
-            double w = ringSize;
+            double w = _ringSize;
             var item = items[i];
             if (item.HasDetail)
             {
@@ -857,13 +861,13 @@ internal sealed class QuotaStrip : Canvas
         double x = 0;
         for (int i = 0; i < items.Count; i++)
         {
-            var ring = QuotaCarousel.Ring((items[i].Shares, items[i].Color, items[i].Tip, items[i].Letter, items[i].Stale), ringSize, thickness, _scale, _look);
+            var ring = QuotaCarousel.Ring((items[i].Shares, items[i].Color, items[i].Tip, items[i].Letter, items[i].Stale), _ringSize, layout.RingThickness, layout.RingScale, _look);
             SetLeft(ring, x);
-            SetTop(ring, (RowHeight - ringSize) / 2);
+            SetTop(ring, (RowHeight - _ringSize) / 2);
             Children.Add(ring);
             if (labels[i] is { } label)
             {
-                SetLeft(label, x + ringSize + _textGap);
+                SetLeft(label, x + _ringSize + _textGap);
                 SetTop(label, (RowHeight - label.DesiredSize.Height) / 2);
                 Children.Add(label);
             }

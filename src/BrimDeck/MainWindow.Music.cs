@@ -207,6 +207,7 @@ public partial class MainWindow
     private PanelHeader _header = PanelHeader.For(36, 20);
     private void ApplyHeader(PanelHeader header)
     {
+        bool gripBoundaryChanged = _header.Row != header.Row;
         _header = header;
         ToolbarRow.Height = new GridLength(header.Row);
         Toolbar.Height = header.Height;
@@ -222,6 +223,8 @@ public partial class MainWindow
         SettingsButton.Height = header.SettingsHeight;
         if (SettingsButton.Parent is FrameworkElement right) right.Margin = new Thickness(0, 0, header.RightMargin, 0);
         ApplicationPages.Margin = new Thickness(ApplicationPagesLeft(header.Side), 0, 0, 0);
+        // A same-size page switch can change the grip boundary without raising Island.SizeChanged.
+        if (gripBoundaryChanged) UpdateGrips();
     }
     private void RenderPageSwitch()
     {
@@ -1199,16 +1202,17 @@ public partial class MainWindow
         double transferWidth = transfer?.Width ?? 0, fixedFace = FixedFace(scale, clock?.ReservedWidth ?? 0, transferWidth, devicesWidth);
         // The system readings ask for the width of everything chosen, on whole device pixels; the whole ones that fit their region show.
         var strip = Settings.ShowsMonitor(EffectiveStyle) ? new MonitorStrip(Settings.CompactReadings, MonitorThemeColors.Strip(Settings, Look), scale,
-            !(media && showCover) && !equalizer && apps.Count == 0 && text.Length == 0 && clock is null && transfer is null && devices is null, _stripPresence, dpi, _stripUnavailable = _stripAdmission.Hidden, _stripAdmission, coreDisplay: Settings.CoreDisplay) : null;
+            !(media && showCover) && !equalizer && apps.Count == 0 && text.Length == 0 && clock is null && transfer is null && devices is null, _stripPresence, dpi, _stripUnavailable = _stripAdmission.Hidden, _stripAdmission, coreDisplay: Settings.CoreDisplay, free: Settings.MonitorShowFree, matrixColumns: Settings.CoreMatrixColumns,
+                coreCount: _app.Monitor?.Latest?.Cpu.OrDefault?.Cores.Count ?? 0) : null;
         _stripLayout = _stripAdmission.Layout;
         // Readings that do not fit scroll through a window of whole readings, as the rings do (CompactSpacing.Window).
         double ringDiameter = QuotaRing.Diameter(Settings.QuotaRingStyle);
         var layout = CompactMusicLayout.Calculate(contentWidth, scale, media, apps.Count, text.Length > 0, fixedFace, strip?.PreferredWidth ?? 0, equalizer, Settings.EqualizerBars, showCover, ringDiameter);
         double detailGap = Settings.ShowsQuotaDetails ? Math.Round(12 * layout.Scale) : layout.RingGap;
         var quotaStrip = Settings.ShowsQuotaDetails && apps.Count > 0
-            ? new QuotaStrip(QuotaDetailItems(apps), layout.RingSize, layout.RingThickness, layout.Scale, detailGap, dpi, Look) : null;
+            ? new QuotaStrip(QuotaDetailItems(apps), layout, detailGap, dpi, Look) : null;
         var steadyQuotaStrip = Settings.ShowsQuotaDetails && steadyApps.Count > 0
-            ? (notice ? new QuotaStrip(QuotaDetailItems(steadyApps), layout.RingSize, layout.RingThickness, layout.Scale, detailGap, dpi, Look) : quotaStrip) : null;
+            ? (notice ? new QuotaStrip(QuotaDetailItems(steadyApps), layout, detailGap, dpi, Look) : quotaStrip) : null;
         // An auto-width surface takes the width of what the row shows; the new shape builds the row again. The track notice
         // and the lyric's changing length are left out, so the width changes only when the content itself does, unless the
         // middle text follows its length (below).
@@ -1228,7 +1232,7 @@ public partial class MainWindow
         // The surface is never narrower than what the row must show (CompactMusicLayout.RequiredWidth); like the width it asks
         // for, this leaves out the track notice, so the surface does not move for it.
         var readingWidths = strip?.ItemWidths() ?? [];
-        double requiredRing = steadyQuotaStrip is not null ? CompactSpacing.Minimum(steadyQuotaStrip.ItemWidths, detailGap)
+        double requiredRing = steadyQuotaStrip is not null ? layout.RingSize
             : steadyRings > 0 ? CompactMusicLayout.RingSizeFor(ringDiameter, scale) : 0;
         double required = CompactMusicLayout.RequiredWidth(scale, media, steadyText, fixedFace,
             requiredRing, CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0), equalizer, Settings.EqualizerBars, showCover);
@@ -1260,7 +1264,12 @@ public partial class MainWindow
         double ringGap = quotaStrip is not null ? detailGap : layout.RingGap;
         double needed = CompactSpacing.Minimum(ringWidths, ringGap) + CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0);
         if (pool < needed) pool += Math.Min(needed - pool, Math.Max(0, titleShare - titleFloor));
-        var (rings, readings) = CompactSpacing.Share(ringWidths, ringGap, readingWidths, strip?.Gap ?? 0, pool);
+        double readingMinimum = CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0);
+        IReadOnlyList<double> ringSlots = quotaStrip is null ? ringWidths
+            : CompactSpacing.DetailSlots(ringWidths, ringGap, layout.RingSize, pool, readingMinimum);
+        var (rings, readings) = CompactSpacing.Share(ringSlots, ringGap, readingWidths, strip?.Gap ?? 0, pool);
+        if (quotaStrip is not null && ringSlots != ringWidths && rings.Window > 0)
+            rings.Travel = Math.Max(0, quotaStrip.PreferredWidth - rings.Window);
         // While the surface is dragged the windows take the room as it comes, an item cut at the edge, and ease back to whole items
         // when it settles (MainWindow.CompactFlow.cs): the row follows the pointer as 1.2.1's did, with no jump per item.
         double flow = CompactFlow();
@@ -1268,7 +1277,7 @@ public partial class MainWindow
         if (flow <= 0) { _restRings = rings.Window; _restReadings = readings.Window; _restHeld = true; }
         else
         {
-            var live = CompactSpacing.ShareFlowing(ringWidths, layout.RingGap, readingWidths, strip?.Gap ?? 0, pool);
+            var live = CompactSpacing.ShareFlowing(ringSlots, ringGap, readingWidths, strip?.Gap ?? 0, pool);
             // While the flow rises the windows start from those of the rest; while it falls, from the whole items of the width it stopped at.
             bool rising = FlowRising;
             if (!rising) _restHeld = false;
@@ -1276,7 +1285,7 @@ public partial class MainWindow
             (int Count, double Window, int Gaps, double Travel) Blend((int Count, double Window, int Gaps, double Travel) whole, (int Count, double Window, int Gaps, double Travel) now, double rest)
                 => (now.Count, RowFlow.Window(rising && rest >= 0 ? rest : whole.Window, now.Window, flow), 0, 0);
             rings = Blend(rings, live.First, _restRings); readings = Blend(readings, live.Second, _restReadings);
-            ringCut = CompactSpacing.CutFade(ringWidths, layout.RingGap, rings.Window, Math.Min(layout.RingEdge, unit));
+            ringCut = CompactSpacing.CutFade(ringWidths, ringGap, rings.Window, Math.Min(layout.RingEdge, unit));
             readingCut = CompactSpacing.CutFade(readingWidths, strip?.Gap ?? 0, readings.Window, Math.Min(Snap(layout.TextEdge, dpi), unit));
         }
         var shown = new List<(object Part, CompactSpacing.Part Size)>();
@@ -1325,13 +1334,8 @@ public partial class MainWindow
                         element = CompactRegion(quotaStrip, room, quotaStrip.PreferredWidth, quotaStrip.RowHeight, row, RegionAnchor.Left, dpi);
                     break;
                 case CompactPart.Rings:
-                    {
-                        var carousel = new QuotaCarousel(steadyItems, layout.RingSize, layout.RingThickness, layout.Scale, layout.RingGap, rings.Count, Math.Min(layout.RingEdge, place.Gap), _quotaElapsed, animate,
-                            flow > 0 ? rings.Window : null, ringCut);
-                        _quotaCarousel = carousel;
-                        element = carousel;
-                        break;
-                    }
+                    element = _quotaCarousel = new QuotaCarousel(steadyItems, layout.RingSize, layout.RingThickness, layout.RingScale, layout.RingGap, rings.Count, Math.Min(layout.RingEdge, place.Gap), _quotaElapsed, animate,
+                        flow > 0 ? rings.Window : null, ringCut, rowHeight: row); break;
                 case CompactPart.Music:
                     element = _compactMarquee = CompactTitle(text, room, layout); break;
                 default:
@@ -1414,7 +1418,7 @@ public partial class MainWindow
             {
                 string group = QuotaRing.GroupName(metric.Label);
                 bool sameGroup = group.Length > 0 && string.Equals(group, lastGroup, StringComparison.Ordinal);
-                if (group.Length > 0) lastGroup = group;
+                lastGroup = group;
                 var detail = new QuotaDetailEntry(
                     Settings.QuotaRingLabels ? QuotaRing.CompactMetricLabel(metric, omitGroup: sameGroup) : "",
                     Settings.QuotaRingFigures ? QuotaRing.MetricFigure(metric, entry, Settings.QuotaRingRemaining) : "",
