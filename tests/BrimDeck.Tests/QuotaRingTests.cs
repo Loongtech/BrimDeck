@@ -184,6 +184,17 @@ internal static class QuotaRingTests
             && QuotaRing.DetailText("Claude", "5h", "35%", "2h 30m", false, false, false, false) == "");
         check("Quota ring detail: NaturalWidth accepts custom ringsWidth for detail labels",
             CompactMusicLayout.NaturalWidth(1, false, 2, false, 0, 0, ringsWidth: 180) == 180);
+        // A wide detail strip beside a short lyric and monitor readings must fit all three at their measured widths.
+        foreach (double measured in new[] { 9.5, 127.2, 840.5 })
+        {
+            double lyric = CompactMusicLayout.MeasuredTextSlot(measured);
+            double width = CompactMusicLayout.NaturalWidth(1, false, 2, true, 0, 160, textSlot: lyric, ringsWidth: 500);
+            var (quotas, readings) = CompactSpacing.Share([230, 258], 12, [160], 0, width - lyric - 16);
+            var row = CompactSpacing.Arrange([new(quotas.Window), new(0), new(readings.Window)], 1, lyric, 18, width, 8, 1, 1, lyric);
+            check($"Quota details and a {measured}-DIP lyric fit with one gap on each side",
+                lyric == Math.Ceiling(measured) + 1 && width == 500 + 8 + lyric + 8 + 160
+                && quotas.Travel == 0 && row.Room.SequenceEqual([500d, lyric, 160d]) && row.Gap == 8 && row.Left[0] == 0);
+        }
         check("Quota ring detail settings: default off and persist",
             !fresh.QuotaRingNames && !fresh.QuotaRingLabels && !fresh.QuotaRingFigures && !fresh.QuotaRingResets && !fresh.ShowsQuotaDetails);
         fresh.QuotaRingNames = true; fresh.QuotaRingLabels = true; fresh.QuotaRingFigures = true; fresh.QuotaRingResets = true;

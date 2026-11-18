@@ -1225,7 +1225,10 @@ public partial class MainWindow
         double textSlot = 0;
         if (steadyText && TextFollowsLength)
         {
-            textSlot = CompactMusicLayout.FollowSlot(CompactTextWidth(text, layout.TextFont), scale);
+            double textWidth = CompactTextWidth(text, layout.TextFont);
+            textSlot = steadyQuotaStrip is not null && textWidth > 0
+                ? CompactMusicLayout.MeasuredTextSlot(textWidth)
+                : CompactMusicLayout.FollowSlot(textWidth, scale);
             double natural = CompactMusicLayout.NaturalWidth(scale, media, steadyRings, steadyText, fixedFace, strip?.PreferredWidth ?? 0, dpi, equalizer, Settings.EqualizerBars, showCover, ringDiameter, textSlot, steadyQuotaStrip?.PreferredWidth ?? 0);
             wanted = CompactMusicLayout.FollowWidth(natural, wanted, FollowContentLimit(shape));
         }
@@ -1250,6 +1253,7 @@ public partial class MainWindow
         bool hasFixed = fixedFace > 0 && layout.ClockWidth >= fixedFace - .001;
         bool hasClock = clock is not null && hasFixed, hasTransfer = transfer is not null && hasFixed, hasDevices = devices is not null && hasFixed, hasText = layout.TextWidth > 0 && text.Length > 0;
         double titleWanted = hasText ? layout.TextWidth : 0;
+        if (hasText && quotaStrip is not null && textSlot > 0) titleWanted = textSlot;
         double shortest = CompactMusicLayout.Whole(CompactMusicLayout.MinimumText * scale);
         // The title's first room: the room its text asked for when it follows its length, else TitleMax.
         double titleFirst = textSlot > 0 ? textSlot : CompactMusicLayout.Whole(CompactSpacing.TitleMax * scale);

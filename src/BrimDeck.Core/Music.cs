@@ -184,11 +184,11 @@ public sealed record CompactMusicLayout(double MiddleWidth, double RingSize, dou
     public const double FollowSlotMin = 48;
     // The room for text textWidth DIPs wide (its drawn width), at this scale, in whole DIPs: one DIP is added so rounding never
     // makes fitting text scroll.
+    public static double MeasuredTextSlot(double textWidth)
+        => double.IsFinite(textWidth) && textWidth > 0 ? Math.Ceiling(textWidth - 1e-9) + 1 : 0;
+
     public static double FollowSlot(double textWidth, double scale)
-    {
-        double s = SafeScale(scale), wanted = double.IsFinite(textWidth) && textWidth > 0 ? Math.Ceiling(textWidth - 1e-9) + 1 : 0;
-        return Math.Max(wanted, Whole(FollowSlotMin * s));
-    }
+        => Math.Max(MeasuredTextSlot(textWidth), Whole(FollowSlotMin * SafeScale(scale)));
     // The content width an auto-width surface takes with the middle text following its length: natural, the width with the
     // text's room (NaturalWidth with FollowSlot); steady, the width with the fixed slot (TextSlot); limit, the content width of
     // the widest surface the style may be on its monitor (the screen for the notch, the work area for the capsule). Text that
@@ -239,10 +239,15 @@ public sealed record CompactMusicLayout(double MiddleWidth, double RingSize, dou
     // The width the rings and the lyric's fixed slot take without cutting or rotating the rings.
     private static double RingsAndText(double s, int rings, bool text, double size, double textSlot = 0, double ringsWidth = 0)
     {
-        double ringSpan = rings == 0 ? 0 : double.IsFinite(ringsWidth) && ringsWidth > 0 ? ringsWidth : rings * size + (rings - 1) * Whole(8 * s);
-        // Beside a lyric the rings may take at most 40 % of the middle (Calculate), so the middle is wide enough for that too.
         double desired = double.IsFinite(textSlot) && textSlot > 0 ? Whole(textSlot) : Whole(TextSlot * s);
-        return !text ? ringSpan : rings == 0 ? desired : Math.Max(Math.Ceiling(ringSpan / .4), ringSpan + Whole(8 * s) + desired);
+        if (rings == 0) return text ? desired : 0;
+        double gap = Gap(s);
+        // The detail strip already includes every ring, label and internal gap.
+        if (double.IsFinite(ringsWidth) && ringsWidth > 0)
+            return text ? ringsWidth + gap + desired : ringsWidth;
+        double ringSpan = rings * size + (rings - 1) * gap;
+        // Calculate limits plain rings to 40% of the middle beside a lyric.
+        return text ? Math.Max(Math.Ceiling(ringSpan / .4), ringSpan + gap + desired) : ringSpan;
     }
 
     // contentWidth here excludes the clock, as before custom sizes: the cover, middle and equalizer share it.
