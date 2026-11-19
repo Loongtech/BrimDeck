@@ -616,10 +616,11 @@ public sealed partial class SettingsWindow
 
         void CompactDetails()
         {
-            if (choices.Count <= 1) return;
+            var detailChoices = QuotaRing.DetailChoices(snapshot);
+            if (detailChoices.Count <= 1) return;
             var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
             var selected = entry.CompactQuotas.ToHashSet(StringComparer.Ordinal);
-            foreach (var metric in choices)
+            foreach (var metric in detailChoices)
             {
                 string metricId = metric.Id;
                 var box = new CheckBox
@@ -660,7 +661,7 @@ public sealed partial class SettingsWindow
         void GroupPriority()
         {
             if (entry.QuotaSource is not (ProviderId.Claude or ProviderId.Antigravity)) return;
-            var groups = QuotaRing.OrderGroups(choices, m => m.Label, entry.QuotaGroupOrder, entry.QuotaSource)
+            var groups = QuotaRing.OrderGroups(choices, m => m.Label, entry.QuotaGroupOrder, entry.QuotaSource, m => m.Window)
                 .Select(g => QuotaRing.GroupName(g[0].Label))
                 .Where(name => name.Length > 0)
                 .ToList();
@@ -684,9 +685,7 @@ public sealed partial class SettingsWindow
                 var up = ActionButton("↑", () =>
                 {
                     if (index <= 0) return;
-                    var next = groups.ToList();
-                    (next[index - 1], next[index]) = (next[index], next[index - 1]);
-                    Change(s => s.Entry(id)!.QuotaGroupOrder = next);
+                    Change(s => s.Entry(id)!.QuotaGroupOrder = QuotaRing.SwapGroupOrder(s.Entry(id)!.QuotaGroupOrder, groups, index - 1, index));
                     RefreshAppRow(id);
                 });
                 up.FontSize = 11; up.Padding = new Thickness(7, 2, 7, 2); up.Margin = new Thickness(6, 0, 0, 0); up.IsEnabled = index > 0;
@@ -694,9 +693,7 @@ public sealed partial class SettingsWindow
                 var down = ActionButton("↓", () =>
                 {
                     if (index >= groups.Count - 1) return;
-                    var next = groups.ToList();
-                    (next[index], next[index + 1]) = (next[index + 1], next[index]);
-                    Change(s => s.Entry(id)!.QuotaGroupOrder = next);
+                    Change(s => s.Entry(id)!.QuotaGroupOrder = QuotaRing.SwapGroupOrder(s.Entry(id)!.QuotaGroupOrder, groups, index, index + 1));
                     RefreshAppRow(id);
                 });
                 down.FontSize = 11; down.Padding = new Thickness(7, 2, 7, 2); down.Margin = new Thickness(4, 0, 0, 0); down.IsEnabled = index < groups.Count - 1;
@@ -712,13 +709,12 @@ public sealed partial class SettingsWindow
 
         if (S.QuotaRingStyle == QuotaRingStyle.Single)
         {
-            // By default the single ring shows the account balance where the source has one, else the most used quota (QuotaRing.For).
-            var account = choices.FirstOrDefault(QuotaRing.IsAccountBalance);
-            List<(string Id, string Label)> options = [("", account is not null ? Name(account) : hasAccount && snapshot.Metrics.Count == 0 ? Loc.T("账户余额", "Account balance") : Loc.T("已用最高的一项", "Most used")),
-                .. choices.Where(metric => metric != account).Select(metric => (metric.Id, Name(metric)))];
+            // Empty ID selects automatically (sole compact choice, else account balance, else most used); explicit IDs override it.
+            List<(string Id, string Label)> options = [("", Loc.T("自动选择", "Automatic")),
+                .. choices.Select(metric => (metric.Id, Name(metric)))];
             if (entry.SingleRingQuota.Length > 0 && choices.All(metric => metric.Id != entry.SingleRingQuota)) options.Add((entry.SingleRingQuota, Label(entry.SingleRingQuota)));
             string title = Loc.T("配额环额度", "Ring quota");
-            Line(title, null, Combo(title, options, account is not null && entry.SingleRingQuota == account.Id ? "" : entry.SingleRingQuota,
+            Line(title, null, Combo(title, options, entry.SingleRingQuota,
                 quota => { Change(s => s.Entry(id)!.SingleRingQuota = quota); RefreshAppRow(id); }));
             CompactDetails();
             GroupPriority();
@@ -734,6 +730,7 @@ public sealed partial class SettingsWindow
             // Nothing read yet, or a source whose figures have nothing to draw (text only).
             Line(Loc.T("外环额度", "Outer ring"), null, Note(snapshot.Metrics.Count == 0 ? Loc.T("读取到额度后可以选择。", "Can be chosen once quotas are read.")
                 : Loc.T("这个来源没有可按比例显示的额度，配额环显示为满环。", "This source has no quota with a share to show; its ring is drawn full.")));
+            CompactDetails();
             return grid;
         }
         while (slots.Count < QuotaRing.MaximumRings) slots.Add("");

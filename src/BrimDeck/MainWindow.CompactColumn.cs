@@ -101,16 +101,24 @@ public partial class MainWindow
                 case CompactPart.Rings when apps.Count > 0:
                     if (Settings.ShowsQuotaDetails)
                     {
-                        var quotaStrip = new QuotaStrip(QuotaDetailItems(apps), layout, ringGap, dpi, Look);
-                        quotaStrip.Stack(gap);
-                        ringsColumnWidth = Math.Min(quotaStrip.PreferredWidth, CompactColumn.ReadingCap * scale);
-                        if (quotaStrip.PreferredWidth > column + .5)
+                        var items = QuotaDetailItems(apps);
+                        var quotaStrip = new QuotaStrip(items, layout, ringGap, dpi, Look);
+                        double maxItemWidth = quotaStrip.ItemWidths.Count == 0 ? layout.RingSize : quotaStrip.ItemWidths.Max();
+                        ringsColumnWidth = Math.Min(maxItemWidth, CompactColumn.ReadingCap * scale);
+                        for (int i = 0; i < items.Count; i++)
                         {
-                            var carousel = new ReadingsCarousel(quotaStrip, column, quotaStrip.PreferredWidth - column, edge, _quotaElapsed, animate);
-                            _quotaCarousel = carousel;
-                            Add(carousel, quotaStrip.Height);
+                            if (quotaStrip.ItemWidths[i] > column + .5)
+                            {
+                                var pinnedRow = QuotaStrip.CreatePinnedRow(items[i], layout, dpi, column, edge, _quotaElapsed, animate, 0, Look, out var carousel);
+                                if (carousel is not null) _columnReadings.Add(carousel);
+                                Add(pinnedRow, quotaStrip.RowHeight);
+                            }
+                            else
+                            {
+                                var singleStrip = new QuotaStrip([items[i]], layout, ringGap, dpi, Look);
+                                Add(singleStrip, singleStrip.RowHeight);
+                            }
                         }
-                        else Add(quotaStrip, quotaStrip.Height);
                     }
                     else
                         Add(ColumnRings(apps, layout, ringGap, column, out double ringsHeight), ringsHeight);

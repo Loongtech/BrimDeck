@@ -210,17 +210,77 @@ internal static class QuotaRingTests
             && QuotaRing.DetailMetrics(detailSnap, null, true).Select(m => m.Id).SequenceEqual(["5 小时额度", "每周额度"]));
         var copiedEntry = pickedEntry.Copy(); copiedEntry.CompactQuotas.Add("每周额度");
         check("Quota ring detail settings: copied app keeps its own CompactQuotas", pickedEntry.CompactQuotas.Count == 2 && copiedEntry.CompactQuotas.Count == 3);
-        check("Quota ring detail: single ring follows lone CompactQuotas choice when SingleRingQuota is empty",
-            QuotaRing.PrimaryFigure(detailSnap, new AppEntry { CompactQuotas = ["5 小时额度"] }, false) == "35%");
+        check("Quota ring detail: single ring follows lone CompactQuotas choice when SingleRingQuota is empty and respects explicit override",
+            QuotaRing.PrimaryFigure(detailSnap, new AppEntry { CompactQuotas = ["5 小时额度"] }, false) == "35%"
+            && QuotaRing.For(detailSnap, new AppEntry { CompactQuotas = ["5 小时额度"] }, QuotaRingStyle.Single, false).Shares.SequenceEqual([35d])
+            && QuotaRing.For(detailSnap, new AppEntry { SingleRingQuota = "每周额度", CompactQuotas = ["5 小时额度"] }, QuotaRingStyle.Single, false).Shares.SequenceEqual([70d]));
+
+        // Explicit account balance selection overrides lone CompactQuotas choice.
+        var accountSnap = new ProviderSnapshot(ProviderId.NewApi)
+        {
+            Metrics =
+            [
+                new(MetricKind.Balance, "账户余额") { Id = "账户余额", Amount = 20m, Total = 100m, TotalIsTarget = true },
+                new(MetricKind.Percent, "5 小时额度") { Id = "5 小时额度", Percent = 35, Window = 300 }
+            ]
+        };
+        check("Quota ring detail: explicit account balance overrides automatic single-ring selection",
+            QuotaRing.For(accountSnap, new AppEntry { CompactQuotas = ["5 小时额度"] }, QuotaRingStyle.Single, false).Shares.SequenceEqual([35d])
+            && QuotaRing.For(accountSnap, new AppEntry { SingleRingQuota = "账户余额", CompactQuotas = ["5 小时额度"] }, QuotaRingStyle.Single, false).Shares.SequenceEqual([80d]));
+
+        // Custom text metrics without percent appear in detail choices/metrics without altering ring choices.
+        var textOnlySnap = new ProviderSnapshot(ProviderId.Custom)
+        {
+            Metrics = [new(MetricKind.Text, "Monthly") { Id = "monthly", Value = "$12.50" }]
+        };
+        check("Quota ring detail: label-bearing text metrics without percent stay in detail choices while ring choices stay unchanged",
+            QuotaRing.Choices(textOnlySnap).Count == 0
+            && QuotaRing.DetailChoices(textOnlySnap).Select(m => m.Id).SequenceEqual(["monthly"])
+            && QuotaRing.DetailMetrics(textOnlySnap, null, true).Select(m => m.Id).SequenceEqual(["monthly"]));
+
+        // Non-generic labels and group prefixes localize in English while keeping the raw GroupName matching key.
+        string savedLang = Loc.Language;
+        try
+        {
+            Loc.Use(Loc.English);
+            var busyMetric = new UsageMetric(MetricKind.Percent, "外部模型 · 忙时每日额度") { Id = "busy", Percent = 40, Window = 1440 };
+            check("Quota ring detail: non-generic labels translate original term and group prefix in English",
+                QuotaRing.GroupName(busyMetric.Label) == "外部模型"
+                && QuotaRing.CompactMetricLabel(busyMetric) == "Outside models Daily busy-hour limit"
+                && QuotaRing.CompactMetricLabel(busyMetric, omitGroup: true) == "Daily busy-hour limit");
+        }
+        finally { Loc.Use(savedLang); }
+
+        // CompactQuotas supports up to 100 metrics (matching parser cap) and QuotaRingAll enables ShowsQuotaDetails.
+        var manyEntry = new AppEntry { CompactQuotas = [.. Enumerable.Range(1, 105).Select(i => $"m{i}")] };
+        manyEntry.Normalize();
+        var allOnlySettings = new DeckSettings { QuotaRingAll = true };
+        check("Quota ring detail settings: CompactQuotas keeps up to 100 items and QuotaRingAll enables details",
+            manyEntry.CompactQuotas.Count == 100 && manyEntry.CompactQuotas[39] == "m40"
+            && allOnlySettings.ShowsQuotaDetails && !new DeckSettings().ShowsQuotaDetails);
+
+        // Discrete GlideCycle with Step covers middle stops when animations are disabled.
+        var discreteMulti = new GlideCycle(200, Discrete: true, Step: 100);
+        check("GlideCycle discrete multi-stop: visits start, middle and end stops",
+            discreteMulti.DiscreteStops == 3
+            && discreteMulti.Shift(0) == 0
+            && discreteMulti.Shift(GlideCycle.StartHold + .1) == -100
+            && discreteMulti.Shift(GlideCycle.StartHold + GlideCycle.EndHold + .1) == -200);
 
         var groupedMetrics = new[]
         {
             new UsageMetric(MetricKind.Percent, "Claude · 每周") { Window = 10080 },
+            new UsageMetric(MetricKind.Percent, "GPT OSS · 5 小时") { Window = 300 },
             new UsageMetric(MetricKind.Percent, "Gemini · 5 小时") { Window = 300 },
             new UsageMetric(MetricKind.Percent, "Argon · 每周") { Window = 10080 }
         };
-        check("Quota group order: defaults to Gemini, Argon, Claude for Antigravity and follows custom priority",
-            QuotaRing.OrderGroups(groupedMetrics, m => m.Label, null, ProviderId.Antigravity).Select(g => QuotaRing.GroupName(g[0].Label)).SequenceEqual(["Gemini", "Argon", "Claude"])
-            && QuotaRing.OrderGroups(groupedMetrics, m => m.Label, ["Claude", "Argon"], ProviderId.Antigravity).Select(g => QuotaRing.GroupName(g[0].Label)).SequenceEqual(["Claude", "Argon", "Gemini"]));
+        check("Quota group order: defaults to Gemini, Argon, then shortest-window named groups for Antigravity and follows custom priority",
+            QuotaRing.OrderGroups(groupedMetrics, m => m.Label, null, ProviderId.Antigravity, m => m.Window).Select(g => QuotaRing.GroupName(g[0].Label)).SequenceEqual(["Gemini", "Argon", "GPT OSS", "Claude"])
+            && QuotaRing.OrderGroups(groupedMetrics, m => m.Label, ["Claude", "Argon"], ProviderId.Antigravity, m => m.Window).Select(g => QuotaRing.GroupName(g[0].Label)).SequenceEqual(["Claude", "Argon", "Gemini", "GPT OSS"]));
+
+        // Swapping visible groups preserves missing groups in the saved order.
+        check("Quota group order: SwapGroupOrder preserves absent groups when swapping visible neighbors",
+            QuotaRing.SwapGroupOrder(["A", "B", "C", "D"], ["A", "C", "D"], 1, 2).SequenceEqual(["A", "B", "D", "C"])
+            && QuotaRing.SwapGroupOrder([], ["A", "B", "C"], 0, 1).SequenceEqual(["B", "A", "C"]));
     }
 }

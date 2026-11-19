@@ -221,7 +221,7 @@ public sealed class AppEntry
         SingleRingQuota = (SingleRingQuota ?? "").Trim();
         if (SingleRingQuota.Length > 500) SingleRingQuota = "";
         RingQuotas = QuotaRing.Slots(RingQuotas);
-        CompactQuotas = (CompactQuotas ?? []).Select(id => id?.Trim() ?? "").Where(id => id.Length is > 0 and <= 500).Distinct(StringComparer.Ordinal).Take(32).ToList();
+        CompactQuotas = (CompactQuotas ?? []).Select(id => id?.Trim() ?? "").Where(id => id.Length is > 0 and <= 500).Distinct(StringComparer.Ordinal).Take(100).ToList();
         QuotaGroupOrder = (QuotaGroupOrder ?? []).Select(group => group?.Trim() ?? "").Where(group => group.Length is > 0 and <= 100).Distinct(StringComparer.Ordinal).Take(32).ToList();
         QuotaTargets = (QuotaTargets ?? []).Where(pair => pair.Key.Length is > 0 and <= 500 && pair.Value > 0 && pair.Value <= AppPresets.MaximumBalanceTarget).Take(32)
             .ToDictionary(pair => pair.Key, pair => decimal.Round(pair.Value, 2, MidpointRounding.AwayFromZero));
@@ -489,7 +489,7 @@ public sealed class DeckSettings
     public bool QuotaRingFigures { get; set; }
     public bool QuotaRingResets { get; set; }
     public bool QuotaRingAll { get; set; }
-    [JsonIgnore] public bool ShowsQuotaDetails => QuotaRingNames || QuotaRingLabels || QuotaRingFigures || QuotaRingResets;
+    [JsonIgnore] public bool ShowsQuotaDetails => QuotaRingNames || QuotaRingLabels || QuotaRingFigures || QuotaRingResets || QuotaRingAll;
     // The quota rings' style (QuotaRingStyle), in every style and in the side column; each application's choice of quotas for it is
     // its own (AppEntry.SingleRingQuota, AppEntry.RingQuotas).
     public QuotaRingStyle QuotaRingStyle { get => _quotaRingStyle; set => _quotaRingStyle = Enum.IsDefined(value) ? value : QuotaRingStyle.Single; }

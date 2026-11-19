@@ -1330,9 +1330,17 @@ public partial class MainWindow
                 case CompactPart.Rings when quotaStrip is not null:
                     if (rings.Travel > 0 || ringCut > 0 || flow > 0 && quotaStrip.PreferredWidth > rings.Window + .5)
                     {
-                        var carousel = new ReadingsCarousel(quotaStrip, rings.Window, rings.Travel, Math.Min(layout.RingEdge, place.Gap), _quotaElapsed, animate, ringCut);
-                        _quotaCarousel = carousel;
-                        element = carousel;
+                        if (quotaStrip.Items.Count == 1)
+                        {
+                            element = QuotaStrip.CreatePinnedRow(quotaStrip.Items[0], layout, dpi, rings.Window, Math.Min(layout.RingEdge, place.Gap), _quotaElapsed, animate, ringCut, Look, out var pinned);
+                            _quotaCarousel = pinned;
+                        }
+                        else
+                        {
+                            var carousel = new ReadingsCarousel(quotaStrip, rings.Window, rings.Travel, Math.Min(layout.RingEdge, place.Gap), _quotaElapsed, animate, ringCut);
+                            _quotaCarousel = carousel;
+                            element = carousel;
+                        }
                     }
                     else
                         element = CompactRegion(quotaStrip, room, quotaStrip.PreferredWidth, quotaStrip.RowHeight, row, RegionAnchor.Left, dpi);
@@ -1406,9 +1414,29 @@ public partial class MainWindow
         return (ring.Shares, Look.QuotaTheme(entry), entry.Name + " · " + ring.Detail + (snapshot.LastSeenAt is { } seen ? " · " + UsageLastSeen.Label(seen, DateTimeOffset.Now) : ""), CompactMusicLayout.RingLetterFor(Settings.QuotaRingLetters, entry.Name), stale);
     }).ToArray();
 
+    private string _compactResetState = "";
+    private string CompactResetSignature(IReadOnlyList<AppEntry> apps, DateTimeOffset now)
+        => string.Join('\n', apps.SelectMany(entry => QuotaRing.DetailMetrics(DashboardUsage.Quota(entry, Snapshots), entry, Settings.QuotaRingAll))
+            .Select(metric => QuotaRing.CompactReset(metric.ResetAt, now)));
+
+    private bool CompactResetsChanged()
+    {
+        if (!Settings.ShowsSummary(EffectiveStyle) || !Settings.ShowsQuotaDetails || !Settings.QuotaRingResets || EffectiveStyle == CompactStyle.Line)
+            return false;
+        string state = CompactResetSignature(Settings.EnabledApps, DateTimeOffset.Now);
+        if (state == _compactResetState) return false;
+        _compactResetState = state;
+        return true;
+    }
+
     private IReadOnlyList<QuotaStripItem> QuotaDetailItems(IReadOnlyList<AppEntry> apps)
     {
         var now = DateTimeOffset.Now;
+        bool hasPerQuotaField = Settings.QuotaRingLabels || Settings.QuotaRingFigures || Settings.QuotaRingResets;
+        bool showLabel = Settings.QuotaRingLabels || Settings.QuotaRingAll && !hasPerQuotaField;
+        bool showFigure = Settings.QuotaRingFigures || Settings.QuotaRingAll && !hasPerQuotaField;
+        bool showReset = Settings.QuotaRingResets;
+        if (showReset) _compactResetState = CompactResetSignature(apps, now);
         return apps.Select(entry =>
         {
             var snapshot = DashboardUsage.Quota(entry, Snapshots);
@@ -1424,9 +1452,9 @@ public partial class MainWindow
                 bool sameGroup = group.Length > 0 && string.Equals(group, lastGroup, StringComparison.Ordinal);
                 lastGroup = group;
                 var detail = new QuotaDetailEntry(
-                    Settings.QuotaRingLabels ? QuotaRing.CompactMetricLabel(metric, omitGroup: sameGroup) : "",
-                    Settings.QuotaRingFigures ? QuotaRing.MetricFigure(metric, entry, Settings.QuotaRingRemaining) : "",
-                    Settings.QuotaRingResets ? QuotaRing.CompactReset(metric.ResetAt, now) : "");
+                    showLabel ? QuotaRing.CompactMetricLabel(metric, omitGroup: sameGroup) : "",
+                    showFigure ? QuotaRing.MetricFigure(metric, entry, Settings.QuotaRingRemaining) : "",
+                    showReset ? QuotaRing.CompactReset(metric.ResetAt, now) : "");
                 if (detail.Any) details.Add(detail);
             }
             return new QuotaStripItem(ring.Shares, Look.QuotaTheme(entry), tip, CompactMusicLayout.RingLetterFor(Settings.QuotaRingLetters, entry.Name), stale, name, details);

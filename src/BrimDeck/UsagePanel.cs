@@ -301,7 +301,7 @@ public partial class MainWindow
         // quota, then Team's.
         var sets = snapshot.Id switch
         {
-            ProviderId.Antigravity or ProviderId.Claude => QuotaRing.OrderGroups(snapshot.Metrics, m => m.Label, entry.QuotaGroupOrder, snapshot.Id)
+            ProviderId.Antigravity or ProviderId.Claude => QuotaRing.OrderGroups(snapshot.Metrics, m => m.Label, entry.QuotaGroupOrder, snapshot.Id, m => m.Window)
                 .Select(group => group.OrderBy(x => x.Window is > 0 ? x.Window.Value : int.MaxValue).ToList())
                 .ToList(),
             _ => [snapshot.Metrics.OrderBy(x => x.Window is > 0 ? x.Window.Value : int.MaxValue).ToList()]

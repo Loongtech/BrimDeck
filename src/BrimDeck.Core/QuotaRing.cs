@@ -121,7 +121,7 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
     // Selects which metrics to render in the collapsed detail strip: all available, per-app selected, or the primary metric.
     public static IReadOnlyList<UsageMetric> DetailMetrics(ProviderSnapshot snapshot, AppEntry? entry, bool showAll)
     {
-        var choices = Choices(snapshot);
+        var choices = DetailChoices(snapshot);
         if (choices.Count == 0) return [];
         if (showAll) return choices;
         if (entry?.CompactQuotas is { Count: > 0 } picked)
@@ -129,7 +129,7 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
             var matched = choices.Where(metric => picked.Contains(metric.Id, StringComparer.Ordinal)).ToList();
             if (matched.Count > 0) return matched;
         }
-        return PrimaryMetric(choices, entry) is { } primary ? [primary] : [];
+        return PrimaryMetric(Choices(snapshot), entry) is { } primary ? [primary] : [choices[0]];
     }
 
     // Formats a compact reset countdown for the collapsed row; returns empty when there is no reset time.
@@ -149,14 +149,15 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
     public static string CompactMetricLabel(UsageMetric? metric, bool omitGroup = false)
     {
         if (metric is null) return "";
-        string group = omitGroup ? "" : GroupName(metric.Label);
-        string rawPeriod = (metric.Label.Contains('·') ? metric.Label.Split('·')[^1] : metric.Label).Replace("额度", "", StringComparison.Ordinal).Trim();
+        string group = omitGroup ? "" : Loc.Label(GroupName(metric.Label));
+        string rawSuffix = (metric.Label.Contains('·') ? metric.Label.Split('·')[^1] : metric.Label).Trim();
+        string normalizedPeriod = rawSuffix.Replace("额度", "", StringComparison.Ordinal).Trim();
         static bool IsGenericPeriod(string text) => text.ToLowerInvariant() switch
         {
             "" or "5 小时" or "5小时" or "5h" or "每日" or "每天" or "daily" or "1d" or "每周" or "weekly" or "1w" or "7d" or "双周" or "每月" or "monthly" or "1m" or "30d" => true,
             _ => false
         };
-        if (metric.Window is > 0 and var minutes && IsGenericPeriod(rawPeriod))
+        if (metric.Window is > 0 and var minutes && IsGenericPeriod(normalizedPeriod))
         {
             const int week = 7 * 24 * 60;
             string span = minutes == week ? Loc.T("周", "1w")
@@ -166,7 +167,7 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
                 : $"{minutes}m";
             return group.Length > 0 ? $"{group} {span}" : span;
         }
-        string localized = Loc.Label(rawPeriod);
+        string localized = Loc.Label(rawSuffix);
         return group.Length > 0 && localized.Length > 0 ? $"{group} {localized}" : localized;
     }
 
@@ -188,7 +189,8 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
     public static string GroupName(string? label) => label is not null && label.Contains('·') ? label.Split('·')[0].Trim() : "";
 
     // Groups and orders quota items according to per-app priority, falling back to the provider's default order.
-    public static List<List<T>> OrderGroups<T>(IReadOnlyList<T> items, Func<T, string> labelOf, IReadOnlyList<string>? preferredOrder, ProviderId id)
+    // For Antigravity, groups of equal default rank are ordered by shortest window within the group (matching legacy paging).
+    public static List<List<T>> OrderGroups<T>(IReadOnlyList<T> items, Func<T, string> labelOf, IReadOnlyList<string>? preferredOrder, ProviderId id, Func<T, int?>? windowOf = null)
     {
         var originalOrder = items.Select(item => GroupName(labelOf(item))).Distinct(StringComparer.Ordinal).ToList();
         int DefaultRank(string group) => id == ProviderId.Antigravity
@@ -203,12 +205,35 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
             }
             return int.MaxValue;
         }
+        int ShortestWindow(IGrouping<string, T> group) => id == ProviderId.Antigravity && windowOf is not null
+            ? group.Min(item => windowOf(item) is > 0 and var w ? w : int.MaxValue)
+            : 0;
         return items.GroupBy(item => GroupName(labelOf(item)), StringComparer.Ordinal)
             .OrderBy(g => PriorityRank(g.Key))
             .ThenBy(g => DefaultRank(g.Key))
+            .ThenBy(ShortestWindow)
             .ThenBy(g => originalOrder.IndexOf(g.Key))
             .Select(g => g.ToList())
             .ToList();
+    }
+
+    // Swaps two visible groups in the persisted group order while preserving any groups not currently present.
+    public static List<string> SwapGroupOrder(IReadOnlyList<string>? existingOrder, IReadOnlyList<string> visibleGroups, int indexA, int indexB)
+    {
+        var merged = new List<string>();
+        if (existingOrder is not null)
+        {
+            foreach (var group in existingOrder)
+                if (!string.IsNullOrWhiteSpace(group) && !merged.Contains(group, StringComparer.Ordinal)) merged.Add(group);
+        }
+        foreach (var group in visibleGroups)
+            if (!string.IsNullOrWhiteSpace(group) && !merged.Contains(group, StringComparer.Ordinal)) merged.Add(group);
+        if (indexA < 0 || indexB < 0 || indexA >= visibleGroups.Count || indexB >= visibleGroups.Count || indexA == indexB)
+            return merged;
+        int posA = merged.IndexOf(visibleGroups[indexA]);
+        int posB = merged.IndexOf(visibleGroups[indexB]);
+        if (posA >= 0 && posB >= 0) (merged[posA], merged[posB]) = (merged[posB], merged[posA]);
+        return merged;
     }
 
     // The account balance, with or without the row's target balance as its total (DashboardUsage.Quota).
@@ -221,6 +246,13 @@ public sealed record QuotaRing(IReadOnlyList<double?> Shares, string Detail)
     // (Ordered): every quota with a share, and every balance and amount spent, which a target gives a share.
     public static IReadOnlyList<UsageMetric> Choices(ProviderSnapshot snapshot) => Ordered(snapshot.Metrics.Where(metric =>
         metric.UsedPercent is { } used && double.IsFinite(used) || metric.Kind is MetricKind.Balance or MetricKind.Spend && metric.Amount is not null));
+
+    // The quotas an application's compact detail strip and multi-select can offer, in default order:
+    // keeps ring choices as well as label-bearing metrics without a percentage share (e.g. custom text metrics).
+    public static IReadOnlyList<UsageMetric> DetailChoices(ProviderSnapshot snapshot) => Ordered(snapshot.Metrics.Where(metric =>
+        metric.UsedPercent is { } used && double.IsFinite(used)
+        || metric.Kind is MetricKind.Balance or MetricKind.Spend && metric.Amount is not null
+        || !string.IsNullOrWhiteSpace(metric.Label)));
 
     // The default order of a source's quotas: the account balance first; then a source that groups its quotas ("Gemini · 5 小时",
     // "Claude · 每周", or one Claude organization's before another's) keeps its groups in its own order, and within a group, as for a

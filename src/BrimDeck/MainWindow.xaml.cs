@@ -165,7 +165,7 @@ public partial class MainWindow : Window
         InitializeThemeFade();
         Island.Background = _surface;
         _refresh.Tick += async (_, _) => await RefreshAutomaticallyAsync();
-        _clock.Tick += (_, _) => { UpdateClock(); ScheduleClock(); if (_expanded) RenderUsage(); else if (OffPeakChanged()) RenderCompact(); if (_lead is null) _app.CheckUpdatesIfDue(); };
+        _clock.Tick += (_, _) => { UpdateClock(); ScheduleClock(); if (_expanded) RenderUsage(); else if (OffPeakChanged() || CompactResetsChanged()) RenderCompact(); if (_lead is null) _app.CheckUpdatesIfDue(); };
         _seconds.Tick += (_, _) => { if (_compactClock is not null) _compactClock.Time = DateTime.Now; _seconds.Interval = SecondDelay(DateTime.Now); };
         _alertTimer.Tick += (_, _) => { _alertTimer.Stop(); _alert = null; RenderCompact(); if (!_expanded) SetExpanded(false); };
         // A new foreground context closes the panel directly (ApplySettings lays it out collapsed), so SetExpanded never sees the
