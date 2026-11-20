@@ -748,8 +748,9 @@ public partial class MainWindow : Window
             if (_columnCarousel is not null) { _columnElapsed = _columnCarousel.Elapsed; _columnCarousel.SetRunning(false, false); }
             if (_columnReadings.Count > 0) _stripElapsed = _columnReadings[0].Elapsed;
             foreach (var reading in _columnReadings) reading.SetRunning(false, false);
+            foreach (var pair in _columnQuotaCarousels) { _columnQuotaElapsed[pair.Key] = pair.Value.Elapsed; pair.Value.SetRunning(false, false); }
             _compactEqualizer = null; _compactMarquee = null; _quotaCarousel = null; _stripCarousel = null; _compactClock = null; _compactStrip = null;
-            _columnCarousel = null; _columnReadings.Clear(); _columnStrips.Clear();
+            _columnCarousel = null; _columnReadings.Clear(); _columnQuotaCarousels.Clear(); _columnStrips.Clear();
             if (_alert is not null)
             {
                 CompactAlert.Visibility = Visibility.Visible; CompactRings.Visibility = Visibility.Collapsed;

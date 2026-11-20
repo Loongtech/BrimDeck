@@ -26,7 +26,10 @@ public sealed partial class SettingsWindow
     private string RingChoices(AppEntry entry)
     {
         var snapshot = DashboardUsage.Quota(entry, _app.Deck.Snapshots);
-        return (snapshot.Metrics.Count > 0 ? "read\n" : "") + string.Join("\n", QuotaRing.Choices(snapshot).Select(metric => metric.Id));
+        return (snapshot.Metrics.Count > 0 ? "read\n" : "")
+            + string.Join("\n", QuotaRing.Choices(snapshot).Select(metric => metric.Id))
+            + "\n--\n"
+            + string.Join("\n", QuotaRing.DetailChoices(snapshot).Select(metric => metric.Id));
     }
     internal void QuotasChanged()
     {

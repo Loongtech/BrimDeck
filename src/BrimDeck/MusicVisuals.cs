@@ -865,7 +865,7 @@ internal sealed class QuotaStrip : Canvas
         {
             if (textWidth > detailWindow + .5 || cut > 0)
             {
-                double travel = Math.Max(0, textWidth - detailWindow);
+                double travel = cut > 0 ? 0 : Math.Max(0, textWidth - detailWindow);
                 carousel = new ReadingsCarousel(panel, textWidth, detailWindow, travel, Math.Min(edge, textGap), elapsed, animate, cut);
                 SetLeft(carousel, ringSize + textGap);
                 SetTop(carousel, (rowHeight - carousel.Height) / 2);

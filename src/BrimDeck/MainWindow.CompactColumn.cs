@@ -20,6 +20,9 @@ public partial class MainWindow
     // each reading (UpdateCompactStrips).
     private readonly List<MonitorStrip> _columnStrips = [];
     private readonly List<ReadingsCarousel> _columnReadings = [];
+    // Pinned quota detail carousels in column mode keep per-app scroll progress separate from monitor/device readings.
+    private readonly Dictionary<Guid, ReadingsCarousel> _columnQuotaCarousels = [];
+    private readonly Dictionary<Guid, TimeSpan> _columnQuotaElapsed = [];
 
     // The column across the notch: its depth less ColumnPad on either side.
     private static double ColumnWidth(CollapsedShape shape)
@@ -109,8 +112,10 @@ public partial class MainWindow
                         {
                             if (quotaStrip.ItemWidths[i] > column + .5)
                             {
-                                var pinnedRow = QuotaStrip.CreatePinnedRow(items[i], layout, dpi, column, edge, _quotaElapsed, animate, 0, Look, out var carousel);
-                                if (carousel is not null) _columnReadings.Add(carousel);
+                                Guid appId = apps[i].InstanceId;
+                                var elapsed = _columnQuotaElapsed.GetValueOrDefault(appId);
+                                var pinnedRow = QuotaStrip.CreatePinnedRow(items[i], layout, dpi, column, edge, elapsed, animate, 0, Look, out var carousel);
+                                if (carousel is not null) _columnQuotaCarousels[appId] = carousel;
                                 Add(pinnedRow, quotaStrip.RowHeight);
                             }
                             else

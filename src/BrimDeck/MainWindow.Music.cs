@@ -1533,6 +1533,7 @@ public partial class MainWindow
         _stripCarousel?.SetRunning(running, _pointerInside);
         _columnCarousel?.SetRunning(running, _pointerInside);
         foreach (var reading in _columnReadings) reading.SetRunning(running, _pointerInside);
+        foreach (var carousel in _columnQuotaCarousels.Values) carousel.SetRunning(running, _pointerInside);
     }
     // With the display off (and the session unlocked), nothing of the music is seen: the bars stop and the audio levels are not read.
     private bool MusicPresentationVisible => IsVisible && !IsSuppressed && !DisplayPower.Off && _mediaTrack is { State: not MediaState.Stopped }
