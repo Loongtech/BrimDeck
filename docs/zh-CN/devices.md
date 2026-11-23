@@ -26,7 +26,7 @@ BrimDeck 只读取电量：不配对、不断开，也不改动任何设备与 W
 | --- | --- |
 | 罗技、迈从（MCHOSE）、ATK、Endgame Gear、VAXEE、雷柏（Rapoo）、Keychron、Finalmouse | 整个品牌 |
 | 雷蛇、华硕 ROG、赛睿（SteelSeries）、海盗船（Corsair）、HyperX | 已知的无线型号 |
-| VXE、VGN、Pulsar、LAMZU、G-Wolves、WLmouse、Ninjutso、LINGBAO、NZXT、HECATE、达尔优（Dareu）、英菲克（Inphic）、黑爵（AJAZZ）、Attack Shark、多彩（DELUX）、Glorious、Darmoshark、前行者（EWEADN）、狼蛛（AULA）、雷神 ML903、玄派 玄熊猫 P1、Scyrox、Cougar、红龙（Redragon）、Hitscan、iRocks、Vancer、Incott、Ryunix、京东京造 JZM5、RIDLAG、摩豹（Motospeed）X6、重力星球（GravaStar，含 Mercury 系列与 S1 Pro、R1） | 已知型号 |
+| VXE、VGN、Pulsar、LAMZU、G-Wolves、WLmouse、Ninjutso、LINGBAO、NZXT、HECATE、达尔优（Dareu）、英菲克（Inphic）、黑爵（AJAZZ）、Attack Shark、多彩（DELUX）、Glorious、Darmoshark、前行者（EWEADN）、狼蛛（AULA）、雷神 ML903、玄派 玄熊猫 P1、Scyrox、Cougar、红龙（Redragon）、Hitscan、iRocks、Vancer、Incott、Ryunix、京东京造 JZM5、RIDLAG、摩豹（Motospeed）X6、重力星球（GravaStar，含 Mercury 系列与 S1 Pro、R1）、IQUNIX Q101 | 已知型号 |
 
 **键盘**
 
@@ -41,7 +41,7 @@ BrimDeck 只读取电量：不配对、不断开，也不改动任何设备与 W
 | 品牌 | 范围 |
 | --- | --- |
 | Jabra、FIFINE、西伯利亚 | 整个品牌 |
-| 罗技（含 G PRO X 2）、赛睿（含 GameBuds X）、HyperX、海盗船（含 Virtuoso、HS80、Void 系列）、雷蛇、索尼 INZONE 与 PULSE Explore、华硕 ROG、ASTRO A50、Audeze Maxwell、Skullcandy PLYR、AKG N9、迈从（含 V9 PRO、G9 PRO）、狼蛛（G9、A9）、JBL Quantum 910、PULSE 3D、ATK（N9 Pro、N9 Ultra、N9 V2 系列）、联想、寸渊影弑、漫步者 Halo Space、竹林鸟（烛龙 ZG4、朱雀 ZG3） | 已知型号 |
+| 罗技（含 G PRO X 2）、赛睿（含 GameBuds X）、HyperX、海盗船（含 Virtuoso、HS80、Void 系列）、雷蛇、索尼 INZONE 与 PULSE Explore、华硕 ROG、ASTRO A50、Audeze Maxwell、Skullcandy PLYR、AKG N9、迈从（含 V9 PRO、G9 PRO）、狼蛛（G9、A9）、JBL Quantum 910、PULSE 3D、ATK（N9 Pro、N9 Ultra、N9 V2 系列）、联想、寸渊影弑、漫步者 Halo Space、竹林鸟（烛龙 ZG4、朱雀 ZG3）、EPOS（H3PRO Hybrid、GSP 670、GSP 370、GTW 270 Hybrid）、IQUNIX ITX Pro | 已知型号 |
 
 **手柄**
 
@@ -64,6 +64,7 @@ BrimDeck 只读取电量：不配对、不断开，也不改动任何设备与 W
 ## 显示与设置
 
 - **电量阈值**：电量不高于预警阈值（默认 25%）时显示为偏低，使用预警色；不高于告警阈值（默认 15%）时显示为低电量，使用告警色。充电时显示闪电标记。
+- **电量时间估计**（默认关闭）：开启后，BrimDeck 会在本机保存设备的近期电量读数（`%LocalAppData%\BrimDeck`，关闭此选项或恢复默认时清除），用来估计还能用多久、充满还需多久，重启后仍然有效。展开的设备页在读数足够前显示“正在收集电量数据…”，之后显示估计。不会上传任何数据。按电量档位的读数不做估计。
 - **设备列表**：可以改名、拖动排序、设置各状态的颜色，分别选择是否在展开页和收起时显示，以及是否读取电量。调整过列表后，断开的设备仍保留在列表中，不再需要时可以“忘记”。
 - **收起时**：在“设置 › 收起外观 › 显示内容”中为刘海或胶囊开启“设备电量”后，每个设备显示为一个电量环，可以选择是否同时显示数字。
 

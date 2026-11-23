@@ -26,6 +26,7 @@ public partial class App : Application
     internal IReadOnlyList<ProviderSnapshot> RestoredUsage { get; set; } = [];
     public ProviderSecrets Secrets { get; private set; } = null!;
     public MiMoAccount MiMo { get; private set; } = null!;
+    public DoubaoQuotaAccount DoubaoQuota { get; private set; } = null!;
     public Pricing Prices { get; private set; } = null!;
     public AppUpdates Updates { get; internal set; } = null!;
     // The main panel. It owns the tray icon, reads the usage data and takes the settings preview; every other chosen
@@ -55,6 +56,8 @@ public partial class App : Application
     private readonly HashSet<MainWindow> _presentingPower = [];
     // The wireless devices' batteries, shared by every panel; created when first wanted (UpdateDeviceDemand).
     internal DeviceBatteries? Devices { get; private set; }
+    // Recent charge readings while DeviceBatteryEstimates is on, for time-left / time-to-full on the devices page.
+    internal DeviceBatteryPace DevicePace { get; } = new();
     internal event Action? DevicesChanged;
     private readonly HashSet<MainWindow> _devicePages = [], _deviceStrips = [];
     // The panels whose collapsed row shows readings or is only hidden for now (the panel open, a notice in it, PresentMonitor): the
@@ -107,6 +110,9 @@ public partial class App : Application
         // So is a first try of a device's read that the last run ended in (DeviceReadStore), with the reads kept for each device.
         DeviceReadStore.Start(folder);
         DeviceReadSwitches.Use(Settings.DeviceChoices);
+        // Recent charge readings for time estimates, kept across runs while the setting is on (DeviceBatteryPaceStore).
+        DeviceBatteryPaceStore.Start(folder);
+        if (Settings.DeviceBatteryEstimates) DevicePace.Load(DeviceBatteryPaceStore.Read(), DateTimeOffset.UtcNow);
         UseLanguage(); UseFont();
         PanelTheme.Use(Settings);
         ScheduleDaylight();
@@ -125,8 +131,9 @@ public partial class App : Application
         Updates = new AppUpdates(BrimDeck.Updates.GitHubUpdates.Create(folder), folder);
         Secrets = new ProviderSecrets(folder);
         MiMo = new MiMoAccount(folder);
-        Lyrics = new LyricsService(appleLyricsFile: Path.Combine(folder, "apple-music-lyrics.json"));
-        Usage = new UsageService(new DesktopSources(MiMo), secrets: Secrets, quotaCache: Path.Combine(folder, ClaudeQuotaCache.FileName),
+        DoubaoQuota = new DoubaoQuotaAccount(folder);
+        Lyrics = new LyricsService(appleLyricsFile: Path.Combine(folder, "apple-music-lyrics.json"), kugouLyricFolder: LyricsService.KugouLyricFolder);
+        Usage = new UsageService(new DesktopSources(MiMo, DoubaoQuota), secrets: Secrets, quotaCache: Path.Combine(folder, ClaudeQuotaCache.FileName),
             kimiQuotaCache: Path.Combine(folder, KimiQuotaCache.FileName), cursorPriceCache: Path.Combine(folder, CursorPrices.FileName));
         // A source read in the background (Qoder) that ended after its round asks for another round to show it; the first reading
         // of a source always does, a later one only while the panel syncs by itself.
@@ -152,7 +159,12 @@ public partial class App : Application
         Step(() => { if (Settings.MonitorPage && Settings.ShowsExpanded(ExpandedItem.Power)) PowerWarm.Start(Dispatcher); });
         Step(WarmSettingsWriter);
         Step(ApplyMemoryMode);
-        Step(() => { DisplayPower.Install(Dispatcher); DisplayPower.Changed += UpdateDeviceDemand; });
+        Step(() =>
+        {
+            DisplayPower.Install(Dispatcher);
+            DisplayPower.Changed += UpdateDeviceDemand;
+            DisplayPower.Changed += UpdateMonitorSettingsDemand;
+        });
         _save.Tick += (_, _) => FlushSettings();
         Step(ApplyTray);
         Step(() =>
@@ -453,6 +465,18 @@ public partial class App : Application
     private const ExpandedDemand EveryDemand = (ExpandedDemand)511;
     private readonly Dictionary<MainWindow, ExpandedDemand> _pageDemands = [];
     private ExpandedDemand _lastPageDemand;
+    private bool _monitorSettingsDrives;
+    private bool FindDrivesForLayout => _monitorSettingsDrives && !DisplayPower.Off;
+    internal void WatchMonitorGridDrives(bool open)
+    {
+        if (_monitorSettingsDrives == open) return;
+        _monitorSettingsDrives = open;
+        ApplyMonitorDemand(lingered: false);
+    }
+    private void UpdateMonitorSettingsDemand()
+    {
+        if (_monitorSettingsDrives) ApplyMonitorDemand(lingered: false);
+    }
     private ExpandedDemand PageDemand()
     {
         if (_presentingMonitor.Count > 0)
@@ -470,7 +494,7 @@ public partial class App : Application
         // the current list at once instead of "Reading processes…" until the first list comes.
         var pageDemand = PageDemand();
         bool listing = (pageDemand & ExpandedDemand.Processes) != 0;
-        bool wanted = pageDemand != ExpandedDemand.None || _stripMonitor.Count > 0;
+        bool wanted = pageDemand != ExpandedDemand.None || _stripMonitor.Count > 0 || FindDrivesForLayout;
         if (Exiting || Monitor is null && !wanted) return;
         // The sampler reads the choice of graphics adapter on its own thread, where each part is read whole.
         Monitor ??= CreateMonitor();
@@ -515,7 +539,18 @@ public partial class App : Application
             DeviceReadSwitches.Use(Settings.DeviceChoices);
             QueueSave();
         }
+        if (Settings.DeviceBatteryEstimates && Devices is { } paceDevices)
+        {
+            DevicePace.Observe(paceDevices.Showing, DateTimeOffset.UtcNow);
+            if (DevicePace.Dirty) ThreadPool.QueueUserWorkItem(_ => DeviceBatteryPaceStore.Save(DevicePace));
+        }
+        else if (!Settings.DeviceBatteryEstimates) ForgetDevicePace();
         DevicesChanged?.Invoke();
+    }
+    internal void ForgetDevicePace()
+    {
+        DevicePace.Clear();
+        DeviceBatteryPaceStore.Erase();
     }
     // Temperatures and drives are read for an open page with them on; also for a collapsed row showing them: the processor's and
     // the graphics adapter's temperatures for a ring showing its own, the drives for the drive reading, and their temperatures when
@@ -564,7 +599,7 @@ public partial class App : Application
         bool stripActive = _stripMonitor.Count > 0 || _heldStrip.Count > 0;
         Monitor?.SetReads(stripActive || Page(ExpandedDemand.Cpu), stripActive || Page(ExpandedDemand.Memory), stripActive || Page(ExpandedDemand.Network));
         Monitor?.SetExtras(Page(ExpandedDemand.Temperatures) || Heat(CompactMonitorItems.Cpu, held) || Heat(CompactMonitorItems.Gpu, held),
-            Page(ExpandedDemand.Storage) || stripDrives,
+            Page(ExpandedDemand.Storage) || stripDrives || FindDrivesForLayout,
             Page(ExpandedDemand.Storage) && Page(ExpandedDemand.Temperatures) || Heat(CompactMonitorItems.Storage, shown),
             // The watts (the counters, NVIDIA's helper) only for a page that shows the power line or a row that chose the reading; the battery
             // alone also for the row's charge reading.
@@ -648,7 +683,9 @@ public partial class App : Application
         Exiting = true; Lifetime.Cancel(); _save.Stop(); _trim?.Stop(); _release?.Stop(); FinishWriting(); StopBackgroundUpdates(); DisplayPower.Uninstall(); Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _tray?.Dispose(); DisposeHotkeys(); WindowDrags?.Dispose(); _listener?.Unregister(null); _settingsEvent?.Dispose();
         ClipboardSync?.Dispose();
         if (Shelf is not null) { Shelf.Exit(); Shelf.Dispose(); }
-        Media?.Dispose(); _restingMedia?.Dispose(); Monitor?.Dispose(); SensorGuard.Finish(); Devices?.Dispose(); DeviceReadStore.Finish(); Lyrics?.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
+        Media?.Dispose(); _restingMedia?.Dispose(); Monitor?.Dispose(); SensorGuard.Finish(); Devices?.Dispose(); DeviceReadStore.Finish();
+        if (Settings.DeviceBatteryEstimates) DeviceBatteryPaceStore.Finish(DevicePace); else ForgetDevicePace();
+        Lyrics?.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
     }
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string id);
 }

@@ -9,7 +9,9 @@ static class DevicesTests
         Kinds(check);
         Ids(check);
         Roster(check);
+        Earlier(check);
         Levels(check);
+        Pace(check);
     }
 
     private static void Kinds(Action<string, bool> check)
@@ -86,11 +88,68 @@ static class DevicesTests
         check("Devices: a device that reports nothing has no lowest", Bt("EE", null).Lowest is null);
     }
 
+    // The last time's readings while the devices are read again (DeviceRoster.WithEarlier).
+    private static void Earlier(Action<string, bool> check)
+    {
+        var earlier = new List<DeviceBattery> { Bt("AA", 60), Bt("BB", 40, "Buds", DeviceKind.Earbuds), Bt("CC", null, "Pad", DeviceKind.Controller) };
+        var shown = DeviceRoster.WithEarlier([], earlier);
+        check("Devices: before any reading, the last time's readings show, marked", shown.Count == 2 && shown.All(d => d.Earlier)
+            && shown.Select(d => d.Key).SequenceEqual(["bt:AA", "bt:BB"]));
+        shown = DeviceRoster.WithEarlier([Bt("AA", 58), Bt("BB", null, "Buds", DeviceKind.Earbuds)], earlier);
+        check("Devices: a reading now replaces the last time's; a device listed without one keeps the last time's",
+            shown.Count == 2 && shown.Single(d => d.Key == "bt:AA") is { Percent: 58, Earlier: false } && shown.Single(d => d.Key == "bt:BB") is { Percent: 40, Earlier: true });
+        shown = DeviceRoster.WithEarlier([Bt("DD", 90, "Keys", DeviceKind.Keyboard)], earlier);
+        check("Devices: the last time's readings take their places in the order", shown.Select(d => d.Kind).SequenceEqual([DeviceKind.Mouse, DeviceKind.Keyboard, DeviceKind.Earbuds]));
+        IReadOnlyList<DeviceBattery> now = [Bt("AA", 58)];
+        check("Devices: with nothing from the last time, the readings now are shown as they are", ReferenceEquals(DeviceRoster.WithEarlier(now, []), now));
+        check("Devices: a marked reading is a change to the page", !Bt("AA", 60).Same(Bt("AA", 60) with { Earlier = true }));
+    }
+
     private static void Levels(Action<string, bool> check)
     {
         check("Devices: levels at the low and the warning thresholds", Devices.Level(15, false, 25, 15) == MemoryLevel.Critical && Devices.Level(16, false, 25, 15) == MemoryLevel.Elevated
             && Devices.Level(25, false, 25, 15) == MemoryLevel.Elevated && Devices.Level(26, false, 25, 15) == MemoryLevel.Normal);
         check("Devices: a charging or unreported battery is never low", Devices.Level(3, true, 25, 15) == MemoryLevel.Normal && Devices.Level(null, false, 25, 15) == MemoryLevel.Normal);
         check("Devices: figures", Devices.Figure(42) == "42%" && Devices.Figure(null) == "—" && Devices.Figure(130) == "100%");
+    }
+    private static void Pace(Action<string, bool> check)
+    {
+        var pace = new DeviceBatteryPace();
+        var start = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
+        var mouse = Bt("AA", 80);
+        pace.Observe([mouse], start);
+        check("Devices pace: one reading alone has no estimate", pace.Of(mouse, start) is { TimeLeft: null, TimeToFull: null });
+        check("Devices pace: while collecting, the page says so",
+            pace.Status(mouse, start) == Loc.T("正在收集电量数据…", "Collecting battery data…"));
+        pace.Observe([mouse with { Percent = 70 }], start.AddMinutes(2));
+        check("Devices pace: a short discharge span is not enough", pace.Of(mouse with { Percent = 70 }, start.AddMinutes(2)).TimeLeft is null
+            && pace.Status(mouse with { Percent = 70 }, start.AddMinutes(2)) == Loc.T("正在收集电量数据…", "Collecting battery data…"));
+        pace.Observe([mouse with { Percent = 60 }], start.AddMinutes(10));
+        var left = pace.Of(mouse with { Percent = 60 }, start.AddMinutes(10));
+        // 20 % in 10 minutes → 120 %/h → 60 / 120 = 0.5 h.
+        check("Devices pace: a discharge slope gives time left", left.TimeLeft == TimeSpan.FromMinutes(30) && left.TimeToFull is null
+            && pace.Status(mouse with { Percent = 60 }, start.AddMinutes(10)) is { } status && status.Contains("30", StringComparison.Ordinal));
+        var charging = mouse with { Percent = 40, Charging = true };
+        pace.Observe([charging], start.AddHours(1));
+        check("Devices pace: a fresh charge mode collects again",
+            pace.Status(charging, start.AddHours(1)) == Loc.T("正在收集电量数据…", "Collecting battery data…"));
+        pace.Observe([charging with { Percent = 70 }], start.AddHours(1).AddMinutes(6));
+        var full = pace.Of(charging with { Percent = 70 }, start.AddHours(1).AddMinutes(6));
+        // 30 % in 6 minutes → 300 %/h → 30 / 300 = 0.1 h.
+        check("Devices pace: a charge slope gives time to full", full.TimeToFull == TimeSpan.FromMinutes(6) && full.TimeLeft is null);
+        check("Devices pace: a stepped reading is never estimated",
+            pace.Of(mouse with { Percent = 50, Accuracy = BatteryAccuracy.Steps }, start.AddHours(2)) is { TimeLeft: null, TimeToFull: null }
+            && pace.Status(mouse with { Percent = 50, Accuracy = BatteryAccuracy.Steps }, start.AddHours(2)) is null);
+        pace.Clear();
+        check("Devices pace: cleared readings leave no estimate", pace.Of(mouse with { Percent = 60 }, start.AddMinutes(10)).TimeLeft is null
+            && pace.Status(mouse with { Percent = 60 }, start.AddMinutes(10)) == Loc.T("正在收集电量数据…", "Collecting battery data…"));
+        var kept = new DeviceBatteryPace();
+        kept.Observe([mouse], start);
+        kept.Observe([mouse with { Percent = 60 }], start.AddMinutes(10));
+        var roundTrip = DeviceBatteryPace.FromFile(kept.Serialize(), start.AddMinutes(10));
+        check("Devices pace: readings survive a file round trip",
+            roundTrip.Of(mouse with { Percent = 60 }, start.AddMinutes(10)).TimeLeft == TimeSpan.FromMinutes(30)
+            && !roundTrip.Dirty);
+        check("Devices settings: time estimates are off by default", !new DeckSettings().DeviceBatteryEstimates);
     }
 }

@@ -26,7 +26,7 @@ HID devices that carry the standard battery report are shown too.
 | --- | --- |
 | Logitech, MCHOSE, ATK, Endgame Gear, VAXEE, Rapoo, Keychron, Finalmouse | Whole brand |
 | Razer, ASUS ROG, SteelSeries, Corsair, HyperX | Known wireless models |
-| VXE, VGN, Pulsar, LAMZU, G-Wolves, WLmouse, Ninjutso, LINGBAO, NZXT, HECATE, Dareu, Inphic, AJAZZ, Attack Shark, DELUX, Glorious, Darmoshark, EWEADN, AULA, Thunderobot ML903, Metaphyuni Metapanda P1, Scyrox, Cougar, Redragon, Hitscan, iRocks, Vancer, Incott, Ryunix, JD Jingzao JZM5, RIDLAG, Motospeed X6, GravaStar (Mercury series, S1 Pro and R1 included) | Known models |
+| VXE, VGN, Pulsar, LAMZU, G-Wolves, WLmouse, Ninjutso, LINGBAO, NZXT, HECATE, Dareu, Inphic, AJAZZ, Attack Shark, DELUX, Glorious, Darmoshark, EWEADN, AULA, Thunderobot ML903, Metaphyuni Metapanda P1, Scyrox, Cougar, Redragon, Hitscan, iRocks, Vancer, Incott, Ryunix, JD Jingzao JZM5, RIDLAG, Motospeed X6, GravaStar (Mercury series, S1 Pro and R1 included), IQUNIX Q101 | Known models |
 
 **Keyboards**
 
@@ -41,7 +41,7 @@ HID devices that carry the standard battery report are shown too.
 | Brand | Coverage |
 | --- | --- |
 | Jabra, FIFINE, XIBERIA | Whole brand |
-| Logitech (G PRO X 2 included), SteelSeries (GameBuds X included), HyperX, Corsair (Virtuoso, HS80 and Void series included), Razer, Sony INZONE and PULSE Explore, ASUS ROG, ASTRO A50, Audeze Maxwell, Skullcandy PLYR, AKG N9, MCHOSE (V9 PRO and G9 PRO included), AULA (G9, A9), JBL Quantum 910, PULSE 3D, ATK (N9 Pro, N9 Ultra, N9 V2 series), Lenovo, DARKRIM, Edifier Halo Space, ZhuAudio (ZG4, ZG3) | Known models |
+| Logitech (G PRO X 2 included), SteelSeries (GameBuds X included), HyperX, Corsair (Virtuoso, HS80 and Void series included), Razer, Sony INZONE and PULSE Explore, ASUS ROG, ASTRO A50, Audeze Maxwell, Skullcandy PLYR, AKG N9, MCHOSE (V9 PRO and G9 PRO included), AULA (G9, A9), JBL Quantum 910, PULSE 3D, ATK (N9 Pro, N9 Ultra, N9 V2 series), Lenovo, DARKRIM, Edifier Halo Space, ZhuAudio (ZG4, ZG3), EPOS (H3PRO Hybrid, GSP 670, GSP 370, GTW 270 Hybrid), IQUNIX ITX Pro | Known models |
 
 **Controllers**
 
@@ -64,6 +64,7 @@ HID devices that carry the standard battery report are shown too.
 ## Display and settings
 
 - **Battery thresholds**: at or under the warning threshold (25% by default) a battery shows as getting low, in the warning color; at or under the critical threshold (15% by default) it shows as low, in the critical color. A charging device shows a bolt.
+- **Battery time estimates** (off by default): when on, BrimDeck keeps recent battery readings on this PC (`%LocalAppData%\BrimDeck`, cleared when the option is turned off or defaults are restored) to estimate how long a device will last or take to charge across restarts. The expanded devices page says it is collecting battery data until enough readings have been seen, then shows the estimate. Nothing is sent anywhere. Stepped readings are not estimated.
 - **Device list**: rename a device, drag to reorder, set the color of each state, and choose separately whether it shows on the page and when collapsed, and whether its battery is read. Once you have changed the list, disconnected devices stay in it; choose "Forget" for one you no longer need.
 - **When collapsed**: turn on "Device batteries" for the notch or capsule under Settings › Collapsed view › Content, and each device shows as a ring; the figures beside the rings are optional.
 

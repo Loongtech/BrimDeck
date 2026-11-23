@@ -84,10 +84,12 @@ public partial class MainWindow
 
         double ringsColumnWidth = apps.Count > 0 ? layout.RingSize : 0;
         var lines = new List<(FrameworkElement Element, double Height)>();
-        void Add(FrameworkElement element, double height)
+        // A line carries what its part opens the panel on, as the row's parts do (HoverPartAt, MainWindow.Hover.cs). The whole line
+        // is the part, so the column is shared out by lines.
+        void Add(FrameworkElement element, double height, object part)
         {
             element.HorizontalAlignment = HorizontalAlignment.Center; element.VerticalAlignment = VerticalAlignment.Center;
-            var line = new Grid { Width = column, Height = height };
+            var line = new Grid { Width = column, Height = height, Tag = HoverPartOf(part) };
             line.Children.Add(element);
             lines.Add((line, height));
         }
@@ -95,7 +97,7 @@ public partial class MainWindow
         {
             var image = MusicVisuals.Cover(_mediaCover, layout.CoverSize, layout.CoverRadius, look: Look);
             System.Windows.Automation.AutomationProperties.SetName(image, _mediaTrack!.Caption);
-            Add(image, layout.CoverSize);
+            Add(image, layout.CoverSize, "cover");
         }
         foreach (var part in Settings.CompactOrder(EffectiveStyle))
         {
@@ -116,20 +118,20 @@ public partial class MainWindow
                                 var elapsed = _columnQuotaElapsed.GetValueOrDefault(appId);
                                 var pinnedRow = QuotaStrip.CreatePinnedRow(items[i], layout, dpi, column, edge, elapsed, animate, 0, Look, out var carousel);
                                 if (carousel is not null) _columnQuotaCarousels[appId] = carousel;
-                                Add(pinnedRow, quotaStrip.RowHeight);
+                                Add(pinnedRow, quotaStrip.RowHeight, CompactPart.Rings);
                             }
                             else
                             {
                                 var singleStrip = new QuotaStrip([items[i]], layout, ringGap, dpi, Look);
-                                Add(singleStrip, singleStrip.RowHeight);
+                                Add(singleStrip, singleStrip.RowHeight, CompactPart.Rings);
                             }
                         }
                     }
                     else
-                        Add(ColumnRings(apps, layout, ringGap, column, out double ringsHeight), ringsHeight);
+                        Add(ColumnRings(apps, layout, ringGap, column, out double ringsHeight), ringsHeight, CompactPart.Rings);
                     break;
                 case CompactPart.Music when text.Length > 0:
-                    Add(_compactMarquee = CompactTitle(text, column, layout), layout.TextHeight); break;
+                    Add(_compactMarquee = CompactTitle(text, column, layout), layout.TextHeight, CompactPart.Music); break;
                 case CompactPart.Monitor:
                     foreach (var strip in strips)
                     {
@@ -138,18 +140,18 @@ public partial class MainWindow
                         {
                             var carousel = new ReadingsCarousel(strip, column, strip.PreferredWidth - column, edge, _stripElapsed, animate);
                             _columnReadings.Add(carousel);
-                            Add(carousel, strip.Height);
+                            Add(carousel, strip.Height, CompactPart.Monitor);
                         }
-                        else { strip.Width = column; Add(strip, strip.Height); }
+                        else { strip.Width = column; Add(strip, strip.Height, CompactPart.Monitor); }
                     }
                     break;
                 case CompactPart.Equalizer when equalizer:
                     _compactEqualizer = new MusicEqualizer { Bars = Settings.EqualizerBars, Width = layout.EqualizerSize, Height = layout.EqualizerHeight, BarWidth = layout.EqualizerBar, Color = EqualizerColor };
-                    Add(_compactEqualizer, layout.EqualizerHeight); break;
+                    Add(_compactEqualizer, layout.EqualizerHeight, CompactPart.Equalizer); break;
                 case CompactPart.Clock when clock is not null:
-                    clock.Width = clock.ReservedWidth; Add(clock, clock.Height); _compactClock = clock; break;
+                    clock.Width = clock.ReservedWidth; Add(clock, clock.Height, CompactPart.Clock); _compactClock = clock; break;
                 case CompactPart.Transfer when transfer is not null:
-                    Add(transfer, transfer.Height); break;
+                    Add(transfer, transfer.Height, CompactPart.Transfer); break;
                 // The devices a line each; should a device's line be wider than the column, they scroll as the readings do.
                 case CompactPart.Devices when devices is not null:
                     if (devices.PreferredWidth > column + .5)
@@ -157,9 +159,9 @@ public partial class MainWindow
                         devices.Width = devices.PreferredWidth;
                         var carousel = new ReadingsCarousel(devices, column, devices.PreferredWidth - column, edge, _stripElapsed, animate);
                         _columnReadings.Add(carousel);
-                        Add(carousel, devices.Height);
+                        Add(carousel, devices.Height, CompactPart.Devices);
                     }
-                    else { devices.Width = column; Add(devices, devices.Height); }
+                    else { devices.Width = column; Add(devices, devices.Height, CompactPart.Devices); }
                     break;
             }
         }

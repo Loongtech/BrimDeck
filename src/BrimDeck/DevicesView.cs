@@ -21,11 +21,14 @@ internal sealed class DevicesView : FrameworkElement
     private PanelLook Look => PanelLook.Of(this);
     private readonly DevicesLayout _layout;
     private readonly DeviceInks _inks;
+    // Recent readings while estimates are on (DeviceBatteryPace); null while the setting is off.
+    private readonly DeviceBatteryPace? _pace;
     private sealed class Card
     {
         public required string Key;
         public required DeviceBattery Device;
-        public Eased Presence, X, Y, Fill;
+        // Faded: 1 while the card shows the last time's reading (DeviceBattery.Earlier), easing to 0 as the reading now comes.
+        public Eased Presence, X, Y, Fill, Faded;
         public double Width, Height;
         public bool Placed, Leaving;
         // The texts as last laid out, kept while their text, width and color stay the same.
@@ -49,9 +52,9 @@ internal sealed class DevicesView : FrameworkElement
     private readonly System.Windows.Controls.ToolTip _tip = new() { Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
     private readonly System.Windows.Threading.DispatcherTimer _tipDelay = new() { Interval = TimeSpan.FromMilliseconds(450) };
 
-    public DevicesView(DevicesLayout layout, DeviceInks inks)
+    public DevicesView(DevicesLayout layout, DeviceInks inks, DeviceBatteryPace? pace = null)
     {
-        _layout = layout; _inks = inks;
+        _layout = layout; _inks = inks; _pace = pace;
         SnapsToDevicePixels = true;
         ClipToBounds = true;
         MouseMove += (_, e) => Hover(e.GetPosition(this));
@@ -99,12 +102,13 @@ internal sealed class DevicesView : FrameworkElement
         var card = _cards.FirstOrDefault(card => card.Key == device.Key);
         if (card is null)
         {
-            card = new Card { Key = device.Key, Device = device, Presence = new Eased(animate ? 0 : 1, Eased.Seconds * .8), Fill = new Eased(0) };
+            card = new Card { Key = device.Key, Device = device, Presence = new Eased(animate ? 0 : 1, Eased.Seconds * .8), Fill = new Eased(0), Faded = new Eased(device.Earlier ? 1 : 0) };
             _cards.Add(card);
         }
         card.Device = device;
         card.Leaving = false;
         card.Presence.Set(1, animate, now);
+        card.Faded.Set(device.Earlier ? 1 : 0, animate, now);
     }
 
     // The shown cards' places; a card that arrives takes its place at once (it fades in there), the others glide to theirs. A
@@ -143,7 +147,7 @@ internal sealed class DevicesView : FrameworkElement
     }
 
     private bool Moving(double now) => _empty.Moving(now) || _looking.Moving(now)
-        || _cards.Any(card => card.Presence.Moving(now) || card.X.Moving(now) || card.Y.Moving(now) || card.Fill.Moving(now));
+        || _cards.Any(card => card.Presence.Moving(now) || card.X.Moving(now) || card.Y.Moving(now) || card.Fill.Moving(now) || card.Faded.Moving(now));
 
     private bool Step(double now)
     {
@@ -219,12 +223,17 @@ internal sealed class DevicesView : FrameworkElement
             bool partial = presence < .999;
             if (partial) drawing.PushOpacity(presence * presence);
             var r = new Rect(x, y, card.Width, card.Height);
+            // A line's divider belongs to the list, not to the reading: it is not faded with it.
+            if (list && card.Y.Target >= DevicesLayout.ListRow * .5) drawing.DrawRectangle(UI.Brush(Look.Hex("rowDivider")), null, new Rect(r.X, r.Y, r.Width, 1 / ppd));
+            double faded = Math.Clamp(card.Faded.At(now), 0, 1);
+            if (faded > .001) drawing.PushOpacity(1 - (1 - EarlierOpacity) * faded);
             switch (_layout.Form)
             {
                 case DevicesForm.Single: DrawSingle(drawing, card, r, now, ppd); break;
-                case DevicesForm.List: DrawLine(drawing, card, r, now, ppd, card.Y.Target >= DevicesLayout.ListRow * .5); break;
+                case DevicesForm.List: DrawLine(drawing, card, r, now, ppd); break;
                 default: DrawTile(drawing, card, r, now, ppd); break;
             }
+            if (faded > .001) drawing.Pop();
             if (partial) drawing.Pop();
         }
         if (fade) drawing.Pop();
@@ -326,12 +335,11 @@ internal sealed class DevicesView : FrameworkElement
     }
 
     // A line of the list: the icon, the name and the line under it, then a small ring (with a bolt in it while charging) and the
-    // figure in a column of its own, so the rings line up from line to line. divider: a hairline above it.
-    private void DrawLine(DrawingContext drawing, Card card, Rect r, double now, double ppd, bool divider)
+    // figure in a column of its own, so the rings line up from line to line. The hairline above it is drawn with the list (OnRender).
+    private void DrawLine(DrawingContext drawing, Card card, Rect r, double now, double ppd)
     {
         var device = card.Device;
         string ring = _inks.Ring(device), accent = _inks.Figure(device);
-        if (divider) drawing.DrawRectangle(UI.Brush(Look.Hex("rowDivider")), null, new Rect(r.X, r.Y, r.Width, 1 / ppd));
         double middle = r.Y + r.Height / 2;
         DeviceGlyphs.Draw(drawing, device.Kind, new Rect(r.X, Math.Round(middle - 9), 18, 18), device.Lowest is null ? Look.Tertiary : Look.Primary);
         const double figureColumn = 38, ringSize = 18;
@@ -390,7 +398,7 @@ internal sealed class DevicesView : FrameworkElement
 
     // The line under the name: the earbuds' parts, then charging, low or getting low, a level in steps or from the voltage, or
     // that the device reports no battery; otherwise where the reading comes from.
-    private static string Detail(DeviceBattery device, MemoryLevel level)
+    private string Detail(DeviceBattery device, MemoryLevel level)
     {
         var parts = new List<string>();
         if (device.Parts.Count > 0) parts.Add(string.Join("  ", device.Parts.Select(part => Devices.PartName(part.Part) + " " + Devices.Figure(part.Percent))));
@@ -400,9 +408,14 @@ internal sealed class DevicesView : FrameworkElement
         else if (level == MemoryLevel.Elevated) parts.Add(Loc.T("电量偏低", "Getting low"));
         else if (device.Accuracy == BatteryAccuracy.Steps) parts.Add(Loc.T("按电量档位", "Stepped level"));
         else if (device.Accuracy == BatteryAccuracy.Voltage) parts.Add(Loc.T("按电压换算", "From voltage"));
+        if (_pace?.Status(device, DateTimeOffset.UtcNow) is { } estimate) parts.Add(estimate);
         if (parts.Count == 0) parts.Add(Devices.SourceName(device.Source));
         return string.Join(" · ", parts);
     }
+
+    // How opaque a reading of the last time is drawn while the devices are read again (DeviceBattery.Earlier), here and in the
+    // collapsed row (DeviceStrip).
+    internal const double EarlierOpacity = .5;
 
     // The charging green, made to stand out from the theme's surface as a graphic (a lighter theme gets a darker green).
     internal static string ChargingOn(PanelLook look) => look.Readable("#6BD68A");

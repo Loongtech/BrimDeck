@@ -26,7 +26,7 @@ public partial class MainWindow
     {
         get
         {
-            var all = _app.Devices?.All ?? [];
+            var all = _app.Devices?.Showing ?? [];
             var choices = Settings.DeviceChoices;
             if (!ReferenceEquals(all, _shownFrom.All) || !ReferenceEquals(choices, _shownFrom.Choices))
             {
@@ -51,7 +51,9 @@ public partial class MainWindow
         bool page = _expanded && CurrentPage == DeckPage.Devices && seen;
         // The collapsed part is read for while it is chosen, before it shows: it joins the row only once a device reports.
         bool strip = !_expanded && Settings.ShowsDevices(EffectiveStyle) && seen && _alert is null;
-        _app.PresentDevices(this, page, strip);
+        // The line that opens into the capsule or the notch keeps that style's devices read, as it would (MonitorPanel.UpdateMonitorDemand).
+        bool ahead = !_expanded && LineIsland is { } island && Settings.ShowsDevices(island) && EffectiveStyle == CompactStyle.Line && seen && _alert is null;
+        _app.PresentDevices(this, page, strip || ahead);
         // Opened again, the page shows the readings as they are now, not as it left them. Devices that came or went while it was
         // closed (DevicesChanged skips the page then) can need another layout step: one device's layout puts every device in the
         // same place, so a second one found while the panel was closed was drawn over the first. The page is built again for the
@@ -95,7 +97,7 @@ public partial class MainWindow
     private StripDevices CurrentStripDevices()
     {
         var inks = Inks;
-        return new([.. DeviceLists.Collapsed(_app.Devices?.All ?? [], Settings.DeviceChoices).Select(device => StripDevice.Of(device, inks))], Settings.DeviceFigures);
+        return new([.. DeviceLists.Collapsed(_app.Devices?.Showing ?? [], Settings.DeviceChoices).Select(device => StripDevice.Of(device, inks))], Settings.DeviceFigures);
     }
     // What the collapsed row shows: the devices as they are, kept while they are being listed again (the display came back on, a
     // suppression ended), so the part does not drop out for the moment the sources take to report.
@@ -122,7 +124,7 @@ public partial class MainWindow
         return DevicesLayout.For(ContentCanvas.Width - 2 * _header.ContentSide, height - _header.Row - MonitorBottom(height), ShownDevices.Count, _devicesView is not null ? _devicesLayout : null);
     }
     private string DevicesKey() => string.Join("|", CurrentDevicesLayout(), Settings.MonitorPalette, Settings.MonitorPalette == MonitorPalette.Custom ? Settings.MonitorCustomColors.Key : "",
-        Inks.Key, Loc.Language, Look.Generation, SystemParameters.HighContrast);
+        Inks.Key, Loc.Language, Look.Generation, SystemParameters.HighContrast, Settings.DeviceBatteryEstimates);
 
     // handover: a page on screen crossfades into the new build; false replaces it at once.
     private void RenderDevices(bool handover = true)
@@ -142,7 +144,7 @@ public partial class MainWindow
         var layout = CurrentDevicesLayout();
         _devicesKey = key; _devicesLayout = layout;
         var old = shown ? _devicesView : null;
-        _devicesView = new DevicesView(layout, Inks);
+        _devicesView = new DevicesView(layout, Inks, Settings.DeviceBatteryEstimates ? _app.DevicePace : null);
         _devicesView.Update(ShownDevices, DevicesSettled, motion: false);
         if (old is not null) MonitorCrossfade.Swap(DevicesContent, _devicesView, old, MonitorMotion);
         else { DevicesContent.Children.Clear(); DevicesContent.Children.Add(_devicesView); }
