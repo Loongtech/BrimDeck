@@ -973,7 +973,14 @@ internal sealed class QuotaStrip : Canvas
         panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         textWidth = DevicePixels.Up(panel.DesiredSize.Width, safeDpi);
         panel.Height = panel.DesiredSize.Height;
-        if (item.Stale) panel.Opacity = BrimDeck.Core.UsageLastSeen.Dimmed;
+        if (item.Stale)
+        {
+            // Keep stale dimming on an inner layer so ReadingsCarousel's reset fade does not overwrite it.
+            panel.Opacity = BrimDeck.Core.UsageLastSeen.Dimmed;
+            var wrapper = new Border { Child = panel, Height = panel.DesiredSize.Height };
+            wrapper.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return wrapper;
+        }
         return panel;
     }
 

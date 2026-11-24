@@ -846,15 +846,18 @@ public sealed partial class SettingsWindow
         void CompactDetails()
         {
             var detailChoices = QuotaRing.DetailChoices(snapshot);
-            if (detailChoices.Count <= 1) return;
+            List<(string Id, string Label)> options = [.. detailChoices.Select(metric => (metric.Id, Name(metric)))];
+            foreach (var saved in entry.CompactQuotas)
+                if (options.All(option => !string.Equals(option.Id, saved, StringComparison.Ordinal)))
+                    options.Add((saved, Label(saved)));
+            if (options.Count <= 1 && entry.CompactQuotas.Count == 0) return;
             var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
             var selected = entry.CompactQuotas.ToHashSet(StringComparer.Ordinal);
-            foreach (var metric in detailChoices)
+            foreach (var (metricId, metricLabel) in options)
             {
-                string metricId = metric.Id;
                 var box = new CheckBox
                 {
-                    Content = Name(metric),
+                    Content = metricLabel,
                     IsChecked = selected.Contains(metricId),
                     Foreground = UI.Brush(TextPrimary),
                     FontFamily = UI.PanelFont,
